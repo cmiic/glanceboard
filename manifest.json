@@ -1,0 +1,41 @@
+{
+  "manifest_version": 2,
+  "name": "Glanceboard",
+  "version": "0.1.0",
+  "description": "At-a-glance live monitoring of your websites — live previews, load time, and cert expiry.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "glanceboard@miic.at",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "icons": {
+    "192": "icons/icon-small.png",
+    "512": "icons/icon-large.png"
+  },
+  "background": {
+    "scripts": ["src/background/index.js"],
+    "persistent": true
+  },
+  "permissions": [
+    "storage",
+    "alarms",
+    "webRequest",
+    "webRequestBlocking",
+    "notifications"
+  ],
+  "optional_permissions": ["*://*/*"],
+  "browser_action": {
+    "default_title": "Glanceboard",
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "192": "icons/icon-small.png"
+    }
+  },
+  "chrome_url_overrides": {
+    "newtab": "src/dashboard/dashboard.html"
+  }
+}
