@@ -31,6 +31,18 @@ function saveNotifications () { setSettings({ notificationsEnabled: notification
 function saveDefaults () { setSettings({ metricDefaults: { cert: defCert.value, load: defLoad.value } }) }
 function applyAll (key, value) { setAllHostsMetric(key, value) }
 
+// The dashboard is a normal extension page (no new-tab override). Expose its URL so the user can
+// set it as their Firefox homepage / new-windows page if they want.
+const dashboardUrl = browser.runtime.getURL('dashboard.html')
+const copied = ref(false)
+async function copyUrl () {
+  try {
+    await navigator.clipboard.writeText(dashboardUrl)
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 1500)
+  } catch { /* clipboard may be unavailable */ }
+}
+
 // ---- export / import host list ----
 const pending = ref(null)
 const importError = ref('')
@@ -91,6 +103,36 @@ async function doImport () {
 
 <template>
   <div class="settings">
+    <div class="card setting">
+      <label class="setting-label">Open / home page</label>
+      <p
+        class="popup-load"
+        style="margin: 0"
+      >
+        Open Glanceboard from its toolbar button. To use it as your Firefox homepage / new windows,
+        copy this address and paste it into Firefox Settings → Home → “Homepage and new windows” →
+        Custom URLs:
+      </p>
+      <div class="field">
+        <input
+          class="input"
+          style="flex: 1; min-width: 200px"
+          :value="dashboardUrl"
+          readonly
+          @focus="$event.target.select()"
+        >
+        <button
+          class="btn"
+          type="button"
+          @click="copyUrl"
+        >
+          {{ copied ? 'Copied' : 'Copy' }}
+        </button>
+      </div>
+      <p class="popup-load">
+        Your new-tab page (Ctrl+T) is left untouched — Glanceboard does not override it.
+      </p>
+    </div>
     <div class="card setting">
       <label class="setting-label">Check interval</label>
       <select

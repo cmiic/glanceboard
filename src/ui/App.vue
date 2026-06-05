@@ -29,8 +29,7 @@ onMounted(async () => {
 })
 
 function openDashboard () {
-  const path = browser.runtime.getManifest().chrome_url_overrides?.newtab
-  if (path) browser.tabs.create({ url: browser.runtime.getURL(path) })
+  browser.tabs.create({ url: browser.runtime.getURL('dashboard.html') })
   window.close()
 }
 function openSite (host) { browser.tabs.create({ url: host.url }) }

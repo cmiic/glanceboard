@@ -1,9 +1,9 @@
 # Glanceboard
 
 An at-a-glance **wall of live website previews**, as a Firefox extension. Add the sites you want to keep
-an eye on and Glanceboard shows them as a grid of live, scaled-down previews — handy as a new-tab/home
-page for a quick visual check, or for periodically eyeballing sites that don't offer a feed or other
-update channel.
+an eye on and Glanceboard shows them as a grid of live, scaled-down previews — handy for a quick visual
+check, or for periodically eyeballing sites that don't offer a feed or other update channel. You open it
+from the toolbar button (and can set it as your homepage — see below).
 
 It is deliberately **soft monitoring**: a quick human glance, not a real monitoring/alerting system.
 
@@ -53,10 +53,14 @@ pick `.output/firefox-mv2/manifest.json`.
 - **Card size** and **Layout** (auto / desktop / mobile).
 - **Export / Import** the host list as JSON.
 
-## Setting it as home / new tab
+## Opening it / setting it as your home page
 
-- **Desktop:** Glanceboard overrides the new-tab page (revertible in Firefox).
-- **Android:** new-tab override isn't supported there; open the dashboard from the toolbar button, or
-  bookmark its page.
+Glanceboard does **not** override your new-tab page — installing it won't change your browser. Open the
+dashboard from the **toolbar button** (or bookmark it).
+
+To make it your **homepage / new windows**: copy the dashboard URL from **Settings → Open / home page**
+and paste it into Firefox **Settings → Home → "Homepage and new windows" → Custom URLs**. (Firefox only
+lets an extension take over the *new-tab* page by overriding it at install time, which Glanceboard
+deliberately does not do.)
 
 See [SECURITY.md](SECURITY.md) for the permission/security model and [TESTING.md](TESTING.md) for tests.
