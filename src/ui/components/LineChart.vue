@@ -15,7 +15,6 @@ import { Line } from 'vue-chartjs'
 ChartJS.register(Title, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement)
 
 const props = defineProps({
-  id: { type: Number, required: true },
   labels: { type: Array, required: true },
   elapsed: { type: Array, required: true }
 })

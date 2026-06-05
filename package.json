@@ -11,7 +11,7 @@
     "dev": "wxt -b firefox",
     "build": "wxt build -b firefox",
     "zip": "wxt zip -b firefox",
-    "postinstall": "wxt prepare",
+    "prepare": "wxt prepare",
     "lint": "npm run lint:js && npm run lint:md",
     "lint:js": "eslint .",
     "lint:md": "markdownlint-cli2",

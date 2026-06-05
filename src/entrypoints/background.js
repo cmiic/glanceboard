@@ -1,6 +1,6 @@
 import { defineBackground } from '#imports'
 import { browser } from '@/lib/browser.js'
-import { stripFramingHeaders } from '@/lib/headers.js'
+import { stripFramingHeaders, isFromOwnExtension } from '@/lib/headers.js'
 import { checkHost } from '@/lib/monitor.js'
 import { getHosts, getSettings, pushResult, ensureSeeded } from '@/lib/storage.js'
 
@@ -11,6 +11,7 @@ export default defineBackground({
   main () {
     const ALARM = 'glanceboard-check'
     const FILTER = { urls: ['*://*/*'], types: ['sub_frame', 'xmlhttprequest'] }
+    const EXT_BASE = browser.runtime.getURL('/') // our extension's moz-extension:// base URL
     const certCache = new Map() // hostname -> { certExpiresInDays, capturedAt }
     const lastOk = new Map() // host id -> last ok/error state (notify only on ok -> error)
 
@@ -37,9 +38,10 @@ export default defineBackground({
 
     function onHeadersReceived (details) {
       captureCert(details)
-      // Strip framing headers ONLY for our preview iframes — never top-level navigations, so a
-      // monitored site keeps its clickjacking protection when opened in a normal tab/window.
-      if (details.type === 'sub_frame') {
+      // Strip framing headers ONLY for our dashboard's own preview iframes — not top-level loads and
+      // not frames embedded by other sites — so a monitored host keeps its clickjacking protection
+      // everywhere except inside our preview.
+      if (details.type === 'sub_frame' && isFromOwnExtension(details, EXT_BASE)) {
         return { responseHeaders: stripFramingHeaders(details.responseHeaders) }
       }
       return undefined

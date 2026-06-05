@@ -78,11 +78,10 @@ onBeforeUnmount(() => {
       :style="gridStyle"
     >
       <HostCard
-        v-for="(host, i) in hosts"
+        v-for="host in hosts"
         :key="host.id"
         :host="host"
         :result="results[host.id] || {}"
-        :index="i"
         :mode="mode"
         :reload-nonce="reloadNonce"
       />

@@ -41,6 +41,7 @@ security-sensitive headers). Firefox is also the only mainstream browser with ex
 
 ```bash
 npm install
+npm run prepare        # generate WXT's types in .wxt/ — run once (see note below)
 npm run dev            # build + launch in Firefox (desktop) via WXT
 npm run build          # build into .output/firefox-mv2/
 npm run zip            # package a distributable .zip
@@ -50,6 +51,12 @@ npm run lint           # eslint + markdownlint
 
 Built with [WXT](https://wxt.dev). Or load it manually: `about:debugging` → **Load Temporary Add-on** →
 pick `.output/firefox-mv2/manifest.json`.
+
+> **Note on `ignore-scripts`.** This repo sets `ignore-scripts=true` in `.npmrc` so dependency install
+> hooks never run automatically — a supply-chain safety measure. The trade-off is that npm also won't
+> auto-run our own `prepare` step, so run `npm run prepare` once after `npm install` to generate WXT's
+> types (`.wxt/`) for your editor. `npm run dev` and `npm run build` invoke `wxt prepare` themselves, so
+> **CI needs no extra step**.
 
 ## Settings
 

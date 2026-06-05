@@ -7,7 +7,6 @@ import { pushResult } from '@/lib/storage.js'
 const props = defineProps({
   host: { type: Object, required: true },
   result: { type: Object, default: () => ({}) },
-  index: { type: Number, default: 0 },
   mode: { type: String, default: 'desktop' }, // 'desktop' | 'mobile'
   reloadNonce: { type: Number, default: 0 }
 })
@@ -216,7 +215,6 @@ function onMouseLeave () {
       class="chart"
     >
       <LineChart
-        :id="index"
         :labels="result.timestamp"
         :elapsed="result.elapsed"
       />

@@ -56,7 +56,8 @@ async function exportHosts () {
   a.href = url
   a.download = 'glanceboard-hosts.json'
   a.click()
-  URL.revokeObjectURL(url)
+  // Defer the revoke so it doesn't abort the download before it starts.
+  setTimeout(() => URL.revokeObjectURL(url), 10000)
 }
 
 function onFile (e) {

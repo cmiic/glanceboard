@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { stripFramingHeaders } from '../src/lib/headers.js'
+import { stripFramingHeaders, isFromOwnExtension } from '../src/lib/headers.js'
 
 const names = (hdrs) => hdrs.map(h => h.name.toLowerCase())
 
@@ -48,4 +48,13 @@ test('leaves unrelated headers untouched', () => {
 test('non-array input is returned as-is', () => {
   assert.equal(stripFramingHeaders(undefined), undefined)
   assert.equal(stripFramingHeaders(null), null)
+})
+
+test('isFromOwnExtension: only true when the embedder is our extension', () => {
+  const base = 'moz-extension://abc-123/'
+  assert.equal(isFromOwnExtension({ documentUrl: 'moz-extension://abc-123/dashboard.html' }, base), true)
+  assert.equal(isFromOwnExtension({ originUrl: 'moz-extension://abc-123/dashboard.html' }, base), true)
+  assert.equal(isFromOwnExtension({ documentUrl: 'https://evil.example/' }, base), false)
+  assert.equal(isFromOwnExtension({ originUrl: 'https://evil.example/' }, base), false)
+  assert.equal(isFromOwnExtension({}, base), false)
 })
