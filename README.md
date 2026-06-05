@@ -72,8 +72,8 @@ npm ci           # installs exactly the pinned deps from package-lock.json (igno
 npm run build     # runs `wxt build`, which self-runs `wxt prepare`
 ```
 
-The unsigned Manifest V2 build is written to `.output/firefox-mv2/`. The build needs no environment
-variables and makes no network requests.
+The unsigned Manifest V2 build is written to `.output/firefox-mv2/`. `npm run build` needs no environment
+variables and makes no network requests (after dependencies are installed).
 
 Publishing to AMO — build, submit, and the reviewer notes — is documented in [RELEASING.md](RELEASING.md).
 
