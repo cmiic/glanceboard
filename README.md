@@ -68,8 +68,8 @@ Built and tested with **Node 24** (see `engines` in `package.json`). From a clea
 add-on is reproduced by:
 
 ```bash
-npm install      # installs the pinned deps from package-lock.json (ignore-scripts is on)
-npm run build    # runs `wxt build`, which self-runs `wxt prepare`
+npm ci           # installs exactly the pinned deps from package-lock.json (ignore-scripts is on)
+npm run build     # runs `wxt build`, which self-runs `wxt prepare`
 ```
 
 The unsigned Manifest V2 build is written to `.output/firefox-mv2/`. The build needs no environment
