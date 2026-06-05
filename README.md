@@ -7,6 +7,10 @@ from the toolbar button (and can set it as your homepage — see below).
 
 It is deliberately **soft monitoring**: a quick human glance, not a real monitoring/alerting system.
 
+> **Install (users):** Glanceboard will be on **Firefox Add-ons** (addons.mozilla.org) — listing pending
+> first review; the link lands here once it's published. Until then, build from source (see
+> [Install / develop](#install--develop)).
+
 ## Highlights
 
 - **Live previews** of any site — rendered in your own browser session, so pages you're logged into show
@@ -57,6 +61,19 @@ pick `.output/firefox-mv2/manifest.json`.
 > auto-run our own `prepare` step, so run `npm run prepare` once after `npm install` to generate WXT's
 > types (`.wxt/`) for your editor. `npm run dev` and `npm run build` invoke `wxt prepare` themselves, so
 > **CI needs no extra step**.
+
+### Building from source (for AMO reviewers)
+
+Built and tested with **Node 24** (see `engines` in `package.json`). From a clean checkout, the published
+add-on is reproduced by:
+
+```bash
+npm install      # installs the pinned deps from package-lock.json (ignore-scripts is on)
+npm run build    # runs `wxt build`, which self-runs `wxt prepare`
+```
+
+The unsigned Manifest V2 build is written to `.output/firefox-mv2/`. The build needs no environment
+variables and makes no network requests.
 
 ## Settings
 
