@@ -4,6 +4,13 @@
   "private": true,
   "type": "module",
   "description": "Glanceboard — an at-a-glance wall of live website previews (Firefox extension)",
+  "homepage": "https://github.com/cmiic/glanceboard#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cmiic/glanceboard.git"
+  },
+  "author": "Christoph Stadlbauer",
+  "license": "MIT",
   "engines": {
     "node": ">=24.0.0"
   },
@@ -11,6 +18,8 @@
     "dev": "wxt -b firefox",
     "build": "wxt build -b firefox",
     "zip": "wxt zip -b firefox",
+    "submit": "wxt zip -b firefox && wxt submit --firefox-zip .output/glanceboard-${npm_package_version}-firefox.zip --firefox-sources-zip .output/glanceboard-${npm_package_version}-sources.zip",
+    "submit:dry": "wxt zip -b firefox && wxt submit --firefox-zip .output/glanceboard-${npm_package_version}-firefox.zip --firefox-sources-zip .output/glanceboard-${npm_package_version}-sources.zip --dry-run",
     "prepare": "wxt prepare",
     "lint": "npm run lint:js && npm run lint:md",
     "lint:js": "eslint .",
@@ -33,6 +42,7 @@
     "wxt": "0.20.26"
   },
   "overrides": {
-    "tmp": "0.2.7"
+    "tmp": "0.2.7",
+    "uuid": "14.0.0"
   }
 }
