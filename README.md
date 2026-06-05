@@ -1,9 +1,9 @@
 # Glanceboard
 
 An at-a-glance **wall of live website previews**, as a Firefox extension. Add the sites you want to keep
-an eye on and Glanceboard shows them as a grid of live, scaled-down previews — handy as a new-tab/home
-page for a quick visual check, or for periodically eyeballing sites that don't offer a feed or other
-update channel.
+an eye on and Glanceboard shows them as a grid of live, scaled-down previews — handy for a quick visual
+check, or for periodically eyeballing sites that don't offer a feed or other update channel. You open it
+from the toolbar button (and can set it as your homepage — see below).
 
 It is deliberately **soft monitoring**: a quick human glance, not a real monitoring/alerting system.
 
@@ -25,23 +25,38 @@ security-sensitive headers). Firefox is also the only mainstream browser with ex
 
 ## Previews
 
-- **Desktop:** every tile renders live and is interactive; the wall auto-refreshes when you enable a
-  check interval. Use the ↗ button to open a site in a new tab, ⟳ to reload a tile.
+- **Desktop:** every tile renders live and is interactive; the wall auto-refreshes every ~2 minutes
+  while the tab is in focus (backgrounded tabs pause). Use the ↗ button to open a site in a new tab,
+  ⟳ to reload a tile.
 - **Android:** tiles render lazily as you scroll; tap a tile to open the site.
+
+## Known limitations
+
+- **Service-worker sites.** A site whose Service Worker serves its pages from cache may show Firefox's
+  "can't be displayed in a frame" page in the preview on a normal load — Firefox doesn't let the
+  extension strip the framing header on service-worker-cached responses. Open such a site with the **↗**
+  button (new tab), or force-reload the dashboard (**Ctrl+Shift+R**) to fetch it fresh.
 
 ## Install / develop
 
 ```bash
 npm install
-npm run build          # build into dist/
-npm run start          # launch in Firefox (desktop) via web-ext
-npm run start:android  # launch on a connected Firefox for Android (adb)
+npm run prepare        # generate WXT's types in .wxt/ — run once (see note below)
+npm run dev            # build + launch in Firefox (desktop) via WXT
+npm run build          # build into .output/firefox-mv2/
+npm run zip            # package a distributable .zip
 npm test               # node:test unit suites (src/lib)
 npm run lint           # eslint + markdownlint
-npm run lint:ext       # web-ext lint on the build
 ```
 
-Or load it manually: `about:debugging` → **Load Temporary Add-on** → pick `dist/manifest.json`.
+Built with [WXT](https://wxt.dev). Or load it manually: `about:debugging` → **Load Temporary Add-on** →
+pick `.output/firefox-mv2/manifest.json`.
+
+> **Note on `ignore-scripts`.** This repo sets `ignore-scripts=true` in `.npmrc` so dependency install
+> hooks never run automatically — a supply-chain safety measure. The trade-off is that npm also won't
+> auto-run our own `prepare` step, so run `npm run prepare` once after `npm install` to generate WXT's
+> types (`.wxt/`) for your editor. `npm run dev` and `npm run build` invoke `wxt prepare` themselves, so
+> **CI needs no extra step**.
 
 ## Settings
 
@@ -53,10 +68,14 @@ Or load it manually: `about:debugging` → **Load Temporary Add-on** → pick `d
 - **Card size** and **Layout** (auto / desktop / mobile).
 - **Export / Import** the host list as JSON.
 
-## Setting it as home / new tab
+## Opening it / setting it as your home page
 
-- **Desktop:** Glanceboard overrides the new-tab page (revertible in Firefox).
-- **Android:** new-tab override isn't supported there; open the dashboard from the toolbar button, or
-  bookmark its page.
+Glanceboard does **not** override your new-tab page — installing it won't change your browser. Open the
+dashboard from the **toolbar button** (or bookmark it).
+
+To make it your **homepage / new windows**: copy the dashboard URL from **Settings → Open / home page**
+and paste it into Firefox **Settings → Home → "Homepage and new windows" → Custom URLs**. (Firefox only
+lets an extension take over the *new-tab* page by overriding it at install time, which Glanceboard
+deliberately does not do.)
 
 See [SECURITY.md](SECURITY.md) for the permission/security model and [TESTING.md](TESTING.md) for tests.

@@ -1,0 +1,19 @@
+name: Dependabot Auto-merge (Cron)
+
+on:
+  schedule:
+    # Run every 8 hours, staggered to avoid burst
+    - cron: '50 0,8,16 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: cmiic/dependabot-automation/cron@6da55a5ce4f786ac1ec1c84b997b713ce28178c2 # v2.1.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}

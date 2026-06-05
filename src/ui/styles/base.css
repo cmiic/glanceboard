@@ -1,0 +1,90 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a { color: var(--primary); }
+
+.app { margin: 0 auto; padding: 16px; }
+
+.app-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.app-title { font-size: 20px; font-weight: 700; margin: 0; }
+.app-title .tld { color: var(--text-dim); font-weight: 400; }
+.spacer { flex: 1; }
+
+.tabs { display: flex; gap: 4px; }
+.tab {
+  background: transparent; border: 1px solid transparent; color: var(--text-dim);
+  padding: 6px 12px; border-radius: 8px; cursor: pointer; font: inherit;
+}
+.tab.active { background: var(--surface); color: var(--text); border-color: var(--border); }
+
+.btn {
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 12px; cursor: pointer; font: inherit;
+}
+.btn:hover { border-color: var(--primary); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn-primary { background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+.btn-sm { padding: 4px 8px; font-size: 12px; }
+.btn-icon { padding: 4px 7px; line-height: 1; }
+
+.input {
+  background: var(--surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font: inherit;
+}
+.input:focus { outline: none; border-color: var(--primary); }
+
+.field { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.error-text { color: var(--danger); font-size: 13px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--gap); }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; box-shadow: var(--shadow); display: flex; flex-direction: column;
+}
+.card.error { border-color: var(--danger); }
+.card-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.card-host { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.card-actions { display: flex; gap: 4px; }
+
+.metrics { display: flex; }
+.metric { flex: 1; text-align: center; padding: 8px 4px; border-right: 1px solid var(--border); }
+.metric:last-child { border-right: 0; }
+.metric.bad { background: var(--danger-bg); color: var(--danger); }
+.metric .label { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--text-dim); }
+.metric.bad .label { color: var(--danger); }
+.metric .value { font-size: 20px; font-weight: 700; }
+.metric .unit { font-size: 11px; color: var(--text-dim); }
+
+.preview { position: relative; width: 100%; background: var(--surface-2); overflow: hidden; }
+.preview iframe {
+  position: absolute; top: 0; left: 0; width: 1280px; height: 800px; border: 0;
+  transform-origin: 0 0; background: #fff;
+}
+.preview .overlay { position: absolute; inset: 0; cursor: pointer; }
+.preview .placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-dim); font-size: 13px; }
+
+.chart { height: 90px; padding: 6px 8px; }
+
+.banner { padding: 8px 12px; font-size: 13px; color: var(--danger); background: var(--danger-bg); }
+
+.empty { color: var(--text-dim); padding: 48px; text-align: center; }
+
+.host-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 8px; margin-bottom: 8px; background: var(--surface);
+}
+.host-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-dim); flex: none; }
+.dot.ok { background: var(--ok); }
+.dot.bad { background: var(--danger); }
+
+.popup { width: 340px; padding: 12px; }
+.popup .host-row { margin-bottom: 6px; padding: 6px 8px; cursor: pointer; }
+.popup-load { font-size: 12px; color: var(--text-dim); }
