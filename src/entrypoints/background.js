@@ -10,7 +10,7 @@ export default defineBackground({
   persistent: true,
   main () {
     const ALARM = 'glanceboard-check'
-    const FILTER = { urls: ['*://*/*'], types: ['main_frame', 'sub_frame', 'xmlhttprequest'] }
+    const FILTER = { urls: ['*://*/*'], types: ['sub_frame', 'xmlhttprequest'] }
     const certCache = new Map() // hostname -> { certExpiresInDays, capturedAt }
     const lastOk = new Map() // host id -> last ok/error state (notify only on ok -> error)
 
@@ -37,7 +37,9 @@ export default defineBackground({
 
     function onHeadersReceived (details) {
       captureCert(details)
-      if (details.type === 'sub_frame' || details.type === 'main_frame') {
+      // Strip framing headers ONLY for our preview iframes — never top-level navigations, so a
+      // monitored site keeps its clickjacking protection when opened in a normal tab/window.
+      if (details.type === 'sub_frame') {
         return { responseHeaders: stripFramingHeaders(details.responseHeaders) }
       }
       return undefined

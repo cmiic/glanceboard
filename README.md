@@ -25,9 +25,17 @@ security-sensitive headers). Firefox is also the only mainstream browser with ex
 
 ## Previews
 
-- **Desktop:** every tile renders live and is interactive; the wall auto-refreshes when you enable a
-  check interval. Use the ↗ button to open a site in a new tab, ⟳ to reload a tile.
+- **Desktop:** every tile renders live and is interactive; the wall auto-refreshes every ~2 minutes
+  while the tab is in focus (backgrounded tabs pause). Use the ↗ button to open a site in a new tab,
+  ⟳ to reload a tile.
 - **Android:** tiles render lazily as you scroll; tap a tile to open the site.
+
+## Known limitations
+
+- **Service-worker sites.** A site whose Service Worker serves its pages from cache may show Firefox's
+  "can't be displayed in a frame" page in the preview on a normal load — Firefox doesn't let the
+  extension strip the framing header on service-worker-cached responses. Open such a site with the **↗**
+  button (new tab), or force-reload the dashboard (**Ctrl+Shift+R**) to fetch it fresh.
 
 ## Install / develop
 

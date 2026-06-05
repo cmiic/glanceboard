@@ -1,7 +1,8 @@
-// Strip framing-protection headers so monitored sites can be embedded in the dashboard.
-// SECURITY: this only ever runs for hosts the user explicitly added — Firefox dispatches the
-// webRequest listener solely for origins we hold (per-host) permission for, so ordinary browsing
-// is never affected.
+// Strip framing-protection headers so monitored sites can be embedded in the dashboard preview.
+// SECURITY: the background invokes this only for our own preview iframes (`sub_frame`) of hosts the
+// user explicitly added — Firefox dispatches the webRequest listener solely for origins we hold
+// (per-host) permission for, so the user's normal top-level browsing of a monitored host is never
+// affected.
 
 export function stripFramingHeaders (responseHeaders) {
   if (!Array.isArray(responseHeaders)) return responseHeaders

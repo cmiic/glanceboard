@@ -17,10 +17,21 @@ const gridStyle = computed(() => ({
 }))
 let timer = null
 
-function setupTimer () {
+function startTimer () {
   if (timer) { clearInterval(timer); timer = null }
-  // Desktop "wall": auto-refresh every ~2 min. Mobile refreshes manually (per-card).
-  if (!isMobile.value) timer = setInterval(() => { reloadNonce.value++ }, 120000)
+  // Desktop "wall": auto-refresh every ~2 min — but only while this tab is visible.
+  if (!isMobile.value && !document.hidden) timer = setInterval(() => { reloadNonce.value++ }, 120000)
+}
+
+// Pause refreshing while the tab is backgrounded; refresh once on return. Keeps multiple open
+// dashboards from each reloading the monitored hosts when you aren't looking at them.
+function onVisibility () {
+  if (document.hidden) {
+    if (timer) { clearInterval(timer); timer = null }
+  } else if (!isMobile.value) {
+    reloadNonce.value++
+    startTimer()
+  }
 }
 
 async function resolveMode () {
@@ -36,13 +47,19 @@ async function resolveMode () {
       isMobile.value = window.matchMedia('(max-width: 700px)').matches
     }
   }
-  setupTimer()
+  startTimer()
 }
 
-onMounted(resolveMode)
+onMounted(() => {
+  resolveMode()
+  document.addEventListener('visibilitychange', onVisibility)
+})
 // React to a layout-mode change from Settings without needing a reload.
 watch(() => props.settings?.mode, resolveMode)
-onBeforeUnmount(() => { if (timer) clearInterval(timer) })
+onBeforeUnmount(() => {
+  if (timer) clearInterval(timer)
+  document.removeEventListener('visibilitychange', onVisibility)
+})
 </script>
 
 <template>
