@@ -33,15 +33,15 @@ security-sensitive headers). Firefox is also the only mainstream browser with ex
 
 ```bash
 npm install
-npm run build          # build into dist/
-npm run start          # launch in Firefox (desktop) via web-ext
-npm run start:android  # launch on a connected Firefox for Android (adb)
+npm run dev            # build + launch in Firefox (desktop) via WXT
+npm run build          # build into .output/firefox-mv2/
+npm run zip            # package a distributable .zip
 npm test               # node:test unit suites (src/lib)
 npm run lint           # eslint + markdownlint
-npm run lint:ext       # web-ext lint on the build
 ```
 
-Or load it manually: `about:debugging` → **Load Temporary Add-on** → pick `dist/manifest.json`.
+Built with [WXT](https://wxt.dev). Or load it manually: `about:debugging` → **Load Temporary Add-on** →
+pick `.output/firefox-mv2/manifest.json`.
 
 ## Settings
 

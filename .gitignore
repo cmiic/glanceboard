@@ -1,5 +1,7 @@
 node_modules/
 dist/
+.output/
+.wxt/
 web-ext-artifacts/
 *.xpi
 .web-extension-id

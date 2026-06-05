@@ -113,12 +113,16 @@ function onMouseLeave () {
       <span class="card-actions">
         <button
           class="btn btn-icon btn-sm"
+          type="button"
           title="Refresh preview"
+          aria-label="Refresh preview"
           @click="loadPreview"
         >⟳</button>
         <button
           class="btn btn-icon btn-sm"
+          type="button"
           title="Open site"
+          aria-label="Open site"
           @click="openSite"
         >↗</button>
       </span>
@@ -197,8 +201,13 @@ function onMouseLeave () {
       <div
         v-if="mode === 'mobile'"
         class="overlay"
+        role="button"
+        tabindex="0"
         title="Open site"
+        aria-label="Open site"
         @click="openSite"
+        @keydown.enter="openSite"
+        @keydown.space.prevent="openSite"
       />
     </div>
 

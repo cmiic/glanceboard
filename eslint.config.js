@@ -48,6 +48,6 @@ export default [
     }
   },
   {
-    ignores: ['node_modules/**', 'dist/**', '**/*.html', 'icons/**']
+    ignores: ['node_modules/**', 'dist/**', '.output/**', '.wxt/**', '**/*.html', 'icons/**']
   }
 ]

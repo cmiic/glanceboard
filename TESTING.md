@@ -23,7 +23,7 @@ Browser-coupled code (the background page, Vue components, iframe behaviour) is 
 
 ## Manual checklist (Firefox)
 
-Build (`npm run build`) and load `dist/manifest.json` via `about:debugging`.
+Build (`npm run build`) and load `.output/firefox-mv2/manifest.json` via `about:debugging`.
 
 - **Passive by default:** a fresh profile makes no background network requests until you set a check
   interval.

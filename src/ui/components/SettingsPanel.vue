@@ -34,6 +34,7 @@ function applyAll (key, value) { setAllHostsMetric(key, value) }
 // ---- export / import host list ----
 const pending = ref(null)
 const importError = ref('')
+const importNotice = ref('')
 
 async function exportHosts () {
   const hosts = await getHosts()
@@ -48,6 +49,7 @@ async function exportHosts () {
 
 function onFile (e) {
   importError.value = ''
+  importNotice.value = ''
   const file = e.target.files?.[0]
   e.target.value = '' // allow re-picking the same file
   if (!file) return
@@ -69,12 +71,17 @@ function onFile (e) {
 
 async function doImport () {
   if (!pending.value?.length) return
-  const origins = [...new Set(pending.value.map(u => normalizeHost(u)?.originPattern).filter(Boolean))]
+  const valid = pending.value.filter(u => normalizeHost(u))
+  const skipped = pending.value.length - valid.length
+  if (!valid.length) { importError.value = 'No valid hosts found in the file'; return }
+  const origins = [...new Set(valid.map(u => normalizeHost(u).originPattern))]
   try {
     // One permission prompt for all imported origins (button click keeps the user gesture).
     const granted = await browser.permissions.request({ origins })
     if (!granted) { importError.value = 'Permission is needed to monitor imported hosts'; return }
-    for (const u of pending.value) await addHost(u).catch(() => {})
+    for (const u of valid) await addHost(u).catch(() => {})
+    importError.value = ''
+    importNotice.value = `Imported ${valid.length} host(s)` + (skipped ? `; skipped ${skipped} invalid` : '')
     pending.value = null
   } catch (e) {
     importError.value = e?.message || String(e)
@@ -278,6 +285,10 @@ async function doImport () {
         v-if="importError"
         class="error-text"
       >{{ importError }}</span>
+      <span
+        v-if="importNotice"
+        class="popup-load"
+      >{{ importNotice }}</span>
     </div>
   </div>
 </template>

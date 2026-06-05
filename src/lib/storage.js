@@ -103,11 +103,19 @@ export async function pushResult (id, sample, maxSamples = DEFAULT_SETTINGS.maxS
 
 export async function getSettings () {
   const { [KEYS.settings]: s } = await browser.storage.local.get(KEYS.settings)
-  return { ...DEFAULT_SETTINGS, ...(s || {}) }
+  const merged = { ...DEFAULT_SETTINGS, ...(s || {}) }
+  // metricDefaults is nested — deep-merge so a partial stored value keeps the other key's default.
+  merged.metricDefaults = { ...DEFAULT_SETTINGS.metricDefaults, ...(s?.metricDefaults || {}) }
+  return merged
 }
 
 export async function setSettings (patch) {
-  const next = { ...(await getSettings()), ...patch }
+  const current = await getSettings()
+  const next = { ...current, ...patch }
+  // Merge (not replace) the nested metricDefaults so partial patches aren't destructive.
+  if (patch && patch.metricDefaults) {
+    next.metricDefaults = { ...current.metricDefaults, ...patch.metricDefaults }
+  }
   await browser.storage.local.set({ [KEYS.settings]: next })
   return next
 }

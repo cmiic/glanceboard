@@ -72,6 +72,11 @@ test('getSettings: merges defaults; checks default to off', async () => {
   assert.equal((await storage.getSettings()).intervalMinutes, 5)
 })
 
+test('setSettings: a partial metricDefaults write keeps the other key (deep-merge)', async () => {
+  await storage.setSettings({ metricDefaults: { cert: true } })
+  assert.deepEqual((await storage.getSettings()).metricDefaults, { cert: true, load: false })
+})
+
 test('ensureSeeded: sets the flag with an empty default host list', async () => {
   await storage.ensureSeeded()
   assert.deepEqual(await storage.getHosts(), [])
