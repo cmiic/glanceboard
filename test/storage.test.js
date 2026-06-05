@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 // browser.js binds `globalThis.browser` at module-evaluation time. We mutate (not replace) this
 // `data` object so the binding captured below stays valid across tests.
 const data = {}
+const revokedOrigins = []
 globalThis.browser = {
   storage: {
     local: {
@@ -16,12 +17,15 @@ globalThis.browser = {
       async set (obj) { Object.assign(data, obj) }
     },
     onChanged: { addListener () {}, removeListener () {} }
+  },
+  permissions: {
+    async remove ({ origins }) { revokedOrigins.push(...(origins || [])); return true }
   }
 }
 
 const storage = await import('../src/lib/storage.js')
 
-beforeEach(() => { for (const k of Object.keys(data)) delete data[k] })
+beforeEach(() => { for (const k of Object.keys(data)) delete data[k]; revokedOrigins.length = 0 })
 
 test('addHost: dedupes and applies metric defaults', async () => {
   await storage.setSettings({ metricDefaults: { cert: true, load: false } })
@@ -33,12 +37,22 @@ test('addHost: dedupes and applies metric defaults', async () => {
   assert.deepEqual(hosts[0].metrics, { cert: true, load: false })
 })
 
-test('removeHost: also deletes the host results', async () => {
+test('removeHost: deletes results and revokes the host permission', async () => {
   await storage.addHost('example.com')
   await storage.pushResult('https://example.com', { ok: true, elapsed: 100, timestamp: 1, certExpiresInDays: 30 })
   await storage.removeHost('https://example.com')
   assert.deepEqual(await storage.getHosts(), [])
   assert.deepEqual(await storage.getAllResults(), {})
+  assert.deepEqual(revokedOrigins, ['https://example.com/*'])
+})
+
+test('removeHost: keeps the permission while another host shares the origin pattern', async () => {
+  await storage.addHost('http://localhost:8080')
+  await storage.addHost('http://localhost:3000') // same match pattern: http://localhost/*
+  await storage.removeHost('http://localhost:8080')
+  assert.deepEqual(revokedOrigins, []) // still needed by localhost:3000
+  await storage.removeHost('http://localhost:3000')
+  assert.deepEqual(revokedOrigins, ['http://localhost/*']) // now revoked
 })
 
 test('pushResult: newest-first, capped, sticky cert', async () => {

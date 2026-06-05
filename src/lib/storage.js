@@ -50,8 +50,22 @@ export async function addHost (input) {
 
 export async function removeHost (id) {
   const hosts = await getHosts()
+  const removed = hosts.find(h => h.id === id)
   const next = hosts.filter(h => h.id !== id)
   await setHosts(next)
+
+  // Revoke the per-host permission once no remaining host needs its origin match pattern, so a
+  // removed host is truly no longer accessible (preserves the per-host least-privilege model).
+  const pattern = removed && normalizeHost(removed.url)?.originPattern
+  if (pattern && browser.permissions?.remove) {
+    const stillNeeded = next.some(h => normalizeHost(h.url)?.originPattern === pattern)
+    if (!stillNeeded) {
+      try {
+        await browser.permissions.remove({ origins: [pattern] })
+      } catch { /* best-effort; permission revocation isn't critical to storage correctness */ }
+    }
+  }
+
   const results = await getAllResults()
   if (results[id]) {
     delete results[id]
