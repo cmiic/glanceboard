@@ -8,6 +8,7 @@ const props = defineProps({ settings: { type: Object, default: () => ({}) } })
 
 const cardMinWidth = ref(props.settings.cardMinWidth ?? 320)
 const intervalMinutes = ref(props.settings.intervalMinutes ?? 0)
+const previewIntervalMinutes = ref(props.settings.previewIntervalMinutes ?? 0)
 const mode = ref(props.settings.mode ?? 'auto')
 const notificationsEnabled = ref(!!props.settings.notificationsEnabled)
 const defCert = ref(!!props.settings.metricDefaults?.cert)
@@ -18,6 +19,7 @@ watch(() => props.settings, (s) => {
   if (!s) return
   if (typeof s.cardMinWidth === 'number') cardMinWidth.value = s.cardMinWidth
   if (typeof s.intervalMinutes === 'number') intervalMinutes.value = s.intervalMinutes
+  if (typeof s.previewIntervalMinutes === 'number') previewIntervalMinutes.value = s.previewIntervalMinutes
   if (s.mode) mode.value = s.mode
   notificationsEnabled.value = !!s.notificationsEnabled
   defCert.value = !!s.metricDefaults?.cert
@@ -26,6 +28,7 @@ watch(() => props.settings, (s) => {
 
 function saveCardWidth () { setSettings({ cardMinWidth: Number(cardMinWidth.value) }) }
 function saveInterval () { setSettings({ intervalMinutes: Number(intervalMinutes.value) }) }
+function savePreviewInterval () { setSettings({ previewIntervalMinutes: Number(previewIntervalMinutes.value) }) }
 function saveMode () { setSettings({ mode: mode.value }) }
 function saveNotifications () { setSettings({ notificationsEnabled: notificationsEnabled.value }) }
 function saveDefaults () { setSettings({ metricDefaults: { cert: defCert.value, load: defLoad.value } }) }
@@ -135,7 +138,7 @@ async function doImport () {
       </p>
     </div>
     <div class="card setting">
-      <label class="setting-label">Check interval</label>
+      <label class="setting-label">Background checks</label>
       <select
         v-model="intervalMinutes"
         class="input"
@@ -169,6 +172,44 @@ async function doImport () {
       <p class="popup-load">
         Off by default — nothing is fetched in the background. Previews and metrics still update when you
         open the dashboard. Turn this on only for sites where periodic checking is appropriate.
+      </p>
+    </div>
+
+    <div class="card setting">
+      <label class="setting-label">Preview refresh</label>
+      <select
+        v-model="previewIntervalMinutes"
+        class="input"
+        @change="savePreviewInterval"
+      >
+        <option :value="0">
+          Off — load once on open
+        </option>
+        <option :value="1">
+          Every minute
+        </option>
+        <option :value="2">
+          Every 2 minutes
+        </option>
+        <option :value="5">
+          Every 5 minutes
+        </option>
+        <option :value="10">
+          Every 10 minutes
+        </option>
+        <option :value="15">
+          Every 15 minutes
+        </option>
+        <option :value="30">
+          Every 30 minutes
+        </option>
+        <option :value="60">
+          Every hour
+        </option>
+      </select>
+      <p class="popup-load">
+        Off by default — the open dashboard loads each live preview once. Turn this on to auto-reload
+        the previews while the dashboard is open (desktop layout only).
       </p>
     </div>
 

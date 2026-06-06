@@ -15,20 +15,27 @@ const mode = computed(() => (isMobile.value ? 'mobile' : 'desktop'))
 const gridStyle = computed(() => ({
   gridTemplateColumns: `repeat(auto-fill, minmax(${props.settings?.cardMinWidth || 320}px, 1fr))`
 }))
+// Preview-refresh cadence, separate from the background-check interval. 0 = off → previews load
+// once on open (HostCard.onMounted) and never auto-reload.
+const previewMs = computed(() => (Number(props.settings?.previewIntervalMinutes) || 0) * 60000)
 let timer = null
 
 function startTimer () {
   if (timer) { clearInterval(timer); timer = null }
-  // Desktop "wall": auto-refresh every ~2 min — but only while this tab is visible.
-  if (!isMobile.value && !document.hidden) timer = setInterval(() => { reloadNonce.value++ }, 120000)
+  // Desktop "wall": auto-refresh the live previews on the configured cadence — but only while this
+  // tab is visible, and only when the user has turned preview refresh on (>= 1 min).
+  if (!isMobile.value && !document.hidden && previewMs.value >= 60000) {
+    timer = setInterval(() => { reloadNonce.value++ }, previewMs.value)
+  }
 }
 
-// Pause refreshing while the tab is backgrounded; refresh once on return. Keeps multiple open
-// dashboards from each reloading the monitored hosts when you aren't looking at them.
+// Pause refreshing while the tab is backgrounded; refresh once on return — but only when preview
+// refresh is on. Keeps multiple open dashboards from each reloading the monitored hosts when you
+// aren't looking at them.
 function onVisibility () {
   if (document.hidden) {
     if (timer) { clearInterval(timer); timer = null }
-  } else if (!isMobile.value) {
+  } else if (!isMobile.value && previewMs.value >= 60000) {
     reloadNonce.value++
     startTimer()
   }
@@ -56,6 +63,8 @@ onMounted(() => {
 })
 // React to a layout-mode change from Settings without needing a reload.
 watch(() => props.settings?.mode, resolveMode)
+// Restart the wall timer live when the preview-refresh setting changes.
+watch(() => props.settings?.previewIntervalMinutes, startTimer)
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   document.removeEventListener('visibilitychange', onVisibility)

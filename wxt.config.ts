@@ -7,6 +7,12 @@ export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-vue'],
   imports: false, // no auto-imports; keep imports explicit so eslint/tests need no generated types
+  // The Firefox sources zip uses WXT's own excludeSources globs, NOT .gitignore — so gitignored
+  // scratch dirs (e.g. tmp/ with HAR captures and review notes) would otherwise be bundled into the
+  // submitted sources. Keep them out.
+  zip: {
+    excludeSources: ['tmp/**']
+  },
   // Preserve the existing `@/...` imports used across the UI/lib.
   vite: () => ({
     resolve: {
