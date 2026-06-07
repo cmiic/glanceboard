@@ -14,7 +14,8 @@ globalThis.browser = {
         if (typeof key === 'string') return key in data ? { [key]: data[key] } : {}
         return {}
       },
-      async set (obj) { Object.assign(data, obj) }
+      async set (obj) { Object.assign(data, obj) },
+      async remove (key) { for (const k of (Array.isArray(key) ? key : [key])) delete data[k] }
     },
     onChanged: { addListener () {}, removeListener () {} }
   },
@@ -64,6 +65,29 @@ test('pushResult: newest-first, capped, sticky cert', async () => {
   assert.deepEqual(r.elapsed, [300, 200]) // newest first, capped at 2
   assert.equal(r.certExpiresInDays[0], 30) // null samples carry the last known value
   assert.equal(r.lastTimestamp, 3)
+})
+
+test('pushResult: concurrent writes to different hosts do not clobber each other', async () => {
+  // Each host owns its own result:<id> key, so interleaved read-modify-writes can't lose data
+  // (the old monolithic single-object write dropped whichever sample committed first).
+  await Promise.all([
+    storage.pushResult('https://a.com', { ok: true, elapsed: 10, timestamp: 1, certExpiresInDays: null }),
+    storage.pushResult('https://b.com', { ok: true, elapsed: 20, timestamp: 2, certExpiresInDays: null })
+  ])
+  const r = await storage.getAllResults()
+  assert.deepEqual(r['https://a.com']?.elapsed, [10])
+  assert.deepEqual(r['https://b.com']?.elapsed, [20])
+})
+
+test('migrateResultsToPerKey: fans the legacy results object out to per-host keys, idempotently', async () => {
+  await browser.storage.local.set({
+    results: { 'https://x.com': { timestamp: [1], elapsed: [5], certExpiresInDays: [null], ok: true, lastTimestamp: 1 } }
+  })
+  await storage.migrateResultsToPerKey()
+  assert.deepEqual((await storage.getAllResults())['https://x.com']?.elapsed, [5])
+  assert.equal((await browser.storage.local.get('results')).results, undefined) // legacy key cleared
+  await storage.migrateResultsToPerKey() // second run is a no-op
+  assert.deepEqual((await storage.getAllResults())['https://x.com']?.elapsed, [5])
 })
 
 test('setHostMetric / setAllHostsMetric', async () => {
