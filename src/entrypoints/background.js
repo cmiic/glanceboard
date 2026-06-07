@@ -125,14 +125,16 @@ export default defineBackground({
       if (changes.settings) await scheduleChecks(await getSettings())
     })
 
-    registerWebRequest()
-    browser.permissions.onAdded.addListener(registerWebRequest)
-    browser.permissions.onRemoved.addListener(registerWebRequest)
-
     async function init () {
+      // Load the strip allowlist and register the header listener FIRST — before any other async
+      // setup — so onHeadersReceived is never live with an empty allowlist (which would skip stripping
+      // and break previews on cold start / right after an upgrade).
+      approvedOrigins = new Set((await getHosts()).map(h => h.id))
+      registerWebRequest()
+      browser.permissions.onAdded.addListener(registerWebRequest)
+      browser.permissions.onRemoved.addListener(registerWebRequest)
       await ensureSeeded()
       await migrateResultsToPerKey() // one-time upgrade from the legacy monolithic `results` object
-      approvedOrigins = new Set((await getHosts()).map(h => h.id))
       const settings = await getSettings()
       await scheduleChecks(settings)
       if ((Number(settings.intervalMinutes) || 0) >= 1) {
