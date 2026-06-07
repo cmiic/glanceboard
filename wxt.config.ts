@@ -17,12 +17,20 @@ export default defineConfig({
   vite: () => ({
     resolve: {
       alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) }
+    },
+    define: {
+      '__VUE_OPTIONS_API__': false,
+      '__VUE_PROD_DEVTOOLS__': false,
+      '__VUE_PROD_HYDRATION_MISMATCH_DETAILS__': false,
     }
   }),
   manifest: {
     name: 'Glanceboard',
     permissions: ['storage', 'alarms', 'webRequest', 'webRequestBlocking', 'notifications'],
-    optional_permissions: ['*://*/*'],
+    optional_permissions: [
+      "http://*/*",
+      "https://*/*"
+    ],
     browser_specific_settings: {
       gecko: {
         id: 'glanceboard@miic.at',

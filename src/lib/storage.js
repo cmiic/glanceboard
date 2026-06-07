@@ -2,11 +2,15 @@ import { browser } from './browser.js'
 import { normalizeHost } from './url.js'
 
 // storage.local schema:
-//   hosts:    [{ id, url, hostname, addedAt, metrics:{cert,load} }]   id = origin (unique key)
-//   results:  { [id]: { timestamp[], elapsed[], certExpiresInDays[], ok, error, source, lastTimestamp } }
-//   settings: { intervalMinutes, previewIntervalMinutes, mode, notificationsEnabled, maxSamples, cardMinWidth, metricDefaults }
-//   seeded:   true once the (currently empty) default host list has been written
+//   hosts:      [{ id, url, hostname, addedAt, metrics:{cert,load} }]   id = origin (unique key)
+//   result:<id>: { timestamp[], elapsed[], certExpiresInDays[], ok, error, source, lastTimestamp }
+//               one key per host so concurrent writers (parallel preview iframes) don't clobber each
+//               other. The old monolithic `results` object is migrated away (migrateResultsToPerKey).
+//   settings:   { intervalMinutes, previewIntervalMinutes, mode, notificationsEnabled, maxSamples, cardMinWidth, metricDefaults }
+//   seeded:     true once the (currently empty) default host list has been written
 const KEYS = { hosts: 'hosts', results: 'results', settings: 'settings', seeded: 'seeded' }
+// Per-host results key prefix. `result:<host id>` → that host's rolling history.
+const RESULT_PREFIX = 'result:'
 
 // No default hosts — the user adds their own. (Kept as an empty list so seeding a default
 // set later is trivial if ever wanted.)
@@ -67,11 +71,7 @@ export async function removeHost (id) {
     }
   }
 
-  const results = await getAllResults()
-  if (results[id]) {
-    delete results[id]
-    await browser.storage.local.set({ [KEYS.results]: results })
-  }
+  await browser.storage.local.remove(RESULT_PREFIX + id)
   return next
 }
 
@@ -91,19 +91,27 @@ export async function setAllHostsMetric (key, value) {
   return next
 }
 
+// Collect every host's history back into the `{ [id]: {...} }` shape the UI expects, reading the
+// per-host `result:<id>` keys (one storage read for all of them).
 export async function getAllResults () {
-  const { [KEYS.results]: results } = await browser.storage.local.get(KEYS.results)
-  return results && typeof results === 'object' ? results : {}
+  const all = await browser.storage.local.get(null)
+  const out = {}
+  for (const key of Object.keys(all || {})) {
+    if (key.startsWith(RESULT_PREFIX)) out[key.slice(RESULT_PREFIX.length)] = all[key]
+  }
+  return out
 }
 
 // Append a measurement to a host's rolling history (newest first, matching the old data shape
 // so LineChart ports unchanged). Cert is "sticky": a sample without a fresh cert reading keeps
-// the last known value rather than blanking the column.
+// the last known value rather than blanking the column. Each host owns its own `result:<id>` key,
+// so parallel preview iframes writing different hosts can't clobber one another.
 export async function pushResult (id, sample, maxSamples = DEFAULT_SETTINGS.maxSamples) {
-  const results = await getAllResults()
-  const prev = results[id] || { timestamp: [], elapsed: [], certExpiresInDays: [] }
+  const key = RESULT_PREFIX + id
+  const { [key]: prev0 } = await browser.storage.local.get(key)
+  const prev = prev0 || { timestamp: [], elapsed: [], certExpiresInDays: [] }
   const cert = sample.certExpiresInDays ?? prev.certExpiresInDays?.[0] ?? null
-  results[id] = {
+  const next = {
     timestamp: [sample.timestamp, ...(prev.timestamp || [])].slice(0, maxSamples),
     elapsed: [sample.elapsed, ...(prev.elapsed || [])].slice(0, maxSamples),
     certExpiresInDays: [cert, ...(prev.certExpiresInDays || [])].slice(0, maxSamples),
@@ -112,8 +120,19 @@ export async function pushResult (id, sample, maxSamples = DEFAULT_SETTINGS.maxS
     source: sample.source || 'fetch',
     lastTimestamp: sample.timestamp
   }
-  await browser.storage.local.set({ [KEYS.results]: results })
-  return results[id]
+  await browser.storage.local.set({ [key]: next })
+  return next
+}
+
+// One-time upgrade: fan the legacy monolithic `results` object out into per-host `result:<id>` keys,
+// then drop the old key. Idempotent — a no-op once the legacy key is gone.
+export async function migrateResultsToPerKey () {
+  const { [KEYS.results]: legacy } = await browser.storage.local.get(KEYS.results)
+  if (!legacy || typeof legacy !== 'object') return
+  const writes = {}
+  for (const [id, value] of Object.entries(legacy)) writes[RESULT_PREFIX + id] = value
+  if (Object.keys(writes).length) await browser.storage.local.set(writes)
+  await browser.storage.local.remove(KEYS.results)
 }
 
 export async function getSettings () {

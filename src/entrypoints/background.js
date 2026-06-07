@@ -1,8 +1,8 @@
 import { defineBackground } from '#imports'
 import { browser } from '@/lib/browser.js'
-import { stripFramingHeaders, isFromOwnExtension } from '@/lib/headers.js'
+import { stripFramingHeaders, isFromOwnExtension, isApprovedTarget } from '@/lib/headers.js'
 import { checkHost } from '@/lib/monitor.js'
-import { getHosts, getSettings, pushResult, ensureSeeded } from '@/lib/storage.js'
+import { getHosts, getSettings, pushResult, ensureSeeded, migrateResultsToPerKey } from '@/lib/storage.js'
 
 // Firefox MV2 persistent background page. WXT imports this file in Node at build time to read the
 // entrypoint options, so ALL runtime code must live inside main() — only imports stay at the top.
@@ -14,6 +14,10 @@ export default defineBackground({
     const EXT_BASE = browser.runtime.getURL('/') // our extension's moz-extension:// base URL
     const certCache = new Map() // hostname -> { certExpiresInDays, capturedAt }
     const lastOk = new Map() // host id -> last ok/error state (notify only on ok -> error)
+    // Origins the user explicitly added — the allowlist gating framing-header stripping. Kept in sync
+    // with storage.local `hosts` (populated in init, refreshed on change) so the blocking
+    // onHeadersReceived path can check it synchronously.
+    let approvedOrigins = new Set()
 
     function certDaysFromSecurityInfo (info) {
       if (!info || (info.state !== 'secure' && info.state !== 'weak')) return null
@@ -38,10 +42,11 @@ export default defineBackground({
 
     function onHeadersReceived (details) {
       captureCert(details)
-      // Strip framing headers ONLY for our dashboard's own preview iframes — not top-level loads and
-      // not frames embedded by other sites — so a monitored host keeps its clickjacking protection
-      // everywhere except inside our preview.
-      if (details.type === 'sub_frame' && isFromOwnExtension(details, EXT_BASE)) {
+      // Strip framing headers ONLY for our dashboard's own preview iframes (not top-level loads, not
+      // frames embedded by other sites) AND only when the framed origin is one the user added — so a
+      // monitored host keeps its clickjacking protection everywhere except inside our preview, and a
+      // redirect to an unrelated origin is never silently de-protected.
+      if (details.type === 'sub_frame' && isFromOwnExtension(details, EXT_BASE) && isApprovedTarget(details.url, approvedOrigins)) {
         return { responseHeaders: stripFramingHeaders(details.responseHeaders) }
       }
       return undefined
@@ -112,16 +117,24 @@ export default defineBackground({
     // Re-register the listener when hosts change; (re)schedule or stop checks when settings change.
     browser.storage.onChanged.addListener(async (changes, area) => {
       if (area !== 'local') return
-      if (changes.hosts) registerWebRequest()
+      if (changes.hosts) {
+        // Keep the strip allowlist in sync from the event payload (synchronous, race-free).
+        approvedOrigins = new Set((changes.hosts.newValue || []).map(h => h.id))
+        registerWebRequest()
+      }
       if (changes.settings) await scheduleChecks(await getSettings())
     })
 
-    registerWebRequest()
-    browser.permissions.onAdded.addListener(registerWebRequest)
-    browser.permissions.onRemoved.addListener(registerWebRequest)
-
     async function init () {
+      // Load the strip allowlist and register the header listener FIRST — before any other async
+      // setup — so onHeadersReceived is never live with an empty allowlist (which would skip stripping
+      // and break previews on cold start / right after an upgrade).
+      approvedOrigins = new Set((await getHosts()).map(h => h.id))
+      registerWebRequest()
+      browser.permissions.onAdded.addListener(registerWebRequest)
+      browser.permissions.onRemoved.addListener(registerWebRequest)
       await ensureSeeded()
+      await migrateResultsToPerKey() // one-time upgrade from the legacy monolithic `results` object
       const settings = await getSettings()
       await scheduleChecks(settings)
       if ((Number(settings.intervalMinutes) || 0) >= 1) {
