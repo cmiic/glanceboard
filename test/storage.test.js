@@ -81,9 +81,12 @@ test('setHostMetric / setAllHostsMetric', async () => {
 test('getSettings: merges defaults; checks default to off', async () => {
   const s = await storage.getSettings()
   assert.equal(s.intervalMinutes, 0)
+  assert.equal(s.previewIntervalMinutes, 0)
   assert.deepEqual(s.metricDefaults, { cert: false, load: false })
   await storage.setSettings({ intervalMinutes: 5 })
   assert.equal((await storage.getSettings()).intervalMinutes, 5)
+  await storage.setSettings({ previewIntervalMinutes: 10 })
+  assert.equal((await storage.getSettings()).previewIntervalMinutes, 10)
 })
 
 test('setSettings: a partial metricDefaults write keeps the other key (deep-merge)', async () => {

@@ -4,7 +4,7 @@ import { normalizeHost } from './url.js'
 // storage.local schema:
 //   hosts:    [{ id, url, hostname, addedAt, metrics:{cert,load} }]   id = origin (unique key)
 //   results:  { [id]: { timestamp[], elapsed[], certExpiresInDays[], ok, error, source, lastTimestamp } }
-//   settings: { intervalMinutes, mode, notificationsEnabled, maxSamples, cardMinWidth, metricDefaults }
+//   settings: { intervalMinutes, previewIntervalMinutes, mode, notificationsEnabled, maxSamples, cardMinWidth, metricDefaults }
 //   seeded:   true once the (currently empty) default host list has been written
 const KEYS = { hosts: 'hosts', results: 'results', settings: 'settings', seeded: 'seeded' }
 
@@ -14,6 +14,7 @@ export const SEED_HOSTNAMES = []
 
 export const DEFAULT_SETTINGS = {
   intervalMinutes: 0, // 0 = off (no background checks); >= 1 = check every N minutes (floor 1)
+  previewIntervalMinutes: 0, // 0 = off (load previews once on open, no auto-refresh); >= 1 = refresh every N min
   mode: 'auto', // 'auto' | 'desktop' | 'mobile'
   notificationsEnabled: false,
   maxSamples: 60,
