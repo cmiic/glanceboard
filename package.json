@@ -34,7 +34,7 @@
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@wxt-dev/module-vue": "1.0.3",
-    "eslint": "10.6.0",
+    "eslint": "10.7.0",
     "eslint-plugin-vue": "10.9.2",
     "globals": "17.7.0",
     "markdownlint-cli2": "0.23.0",
