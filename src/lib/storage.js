@@ -1,8 +1,10 @@
 import { browser } from './browser.js'
-import { normalizeHost } from './url.js'
+import { normalizeTarget } from './url.js'
 
 // storage.local schema:
-//   hosts:      [{ id, url, hostname, addedAt, metrics:{cert,load} }]   id = origin (unique key)
+//   hosts:      [{ id, url, hostname, origin, label, addedAt, metrics:{cert,load} }]
+//               id = the normalized URL: the bare origin for a whole-site entry, origin + path for a
+//               single monitored page. Several pages of one host are independent entries.
 //   result:<id>: { timestamp[], elapsed[], certExpiresInDays[], ok, error, source, lastTimestamp }
 //               one key per host so concurrent writers (parallel preview iframes) don't clobber each
 //               other. The old monolithic `results` object is migrated away (migrateResultsToPerKey).
@@ -26,10 +28,20 @@ export const DEFAULT_SETTINGS = {
   metricDefaults: { cert: false, load: false } // default visibility of the cert/load tiles for new hosts
 }
 
-function makeHost (input) {
-  const n = normalizeHost(input)
+function makeEntry (input) {
+  const n = normalizeTarget(input)
   if (!n) return null
-  return { id: n.id, url: n.url, hostname: n.hostname, addedAt: Date.now() }
+  return { id: n.id, url: n.url, hostname: n.hostname, origin: n.origin, label: n.label, addedAt: Date.now() }
+}
+
+// `origin` and `label` arrived with page support, so entries stored by an older version lack them.
+// Derive rather than migrate — the stored `url` is always enough to recompute both.
+export function entryOrigin (entry) {
+  return entry?.origin || normalizeTarget(entry?.url)?.origin || null
+}
+
+export function entryLabel (entry) {
+  return entry?.label || normalizeTarget(entry?.url)?.label || entry?.hostname || ''
 }
 
 export async function getHosts () {
@@ -42,10 +54,11 @@ export async function setHosts (hosts) {
 }
 
 export async function addHost (input) {
-  const host = makeHost(input)
-  if (!host) throw new Error('Invalid host or URL')
+  const host = makeEntry(input)
+  if (!host) throw new Error('Invalid site or URL')
   const hosts = await getHosts()
-  if (hosts.some(h => h.id === host.id)) return hosts // dedupe
+  // Dedupe on the full id, so two pages of the same host are kept as separate entries.
+  if (hosts.some(h => h.id === host.id)) return hosts
   const { metricDefaults } = await getSettings()
   host.metrics = { ...metricDefaults }
   const next = [...hosts, host]
@@ -59,11 +72,12 @@ export async function removeHost (id) {
   const next = hosts.filter(h => h.id !== id)
   await setHosts(next)
 
-  // Revoke the per-host permission once no remaining host needs its origin match pattern, so a
-  // removed host is truly no longer accessible (preserves the per-host least-privilege model).
-  const pattern = removed && normalizeHost(removed.url)?.originPattern
+  // Revoke the per-host permission once no remaining entry needs its origin match pattern, so a
+  // removed entry is truly no longer accessible (preserves the per-host least-privilege model).
+  // Another page of the same host still counts as needing it.
+  const pattern = removed && normalizeTarget(removed.url)?.originPattern
   if (pattern && browser.permissions?.remove) {
-    const stillNeeded = next.some(h => normalizeHost(h.url)?.originPattern === pattern)
+    const stillNeeded = next.some(h => normalizeTarget(h.url)?.originPattern === pattern)
     if (!stillNeeded) {
       try {
         await browser.permissions.remove({ origins: [pattern] })
@@ -158,7 +172,7 @@ export async function setSettings (patch) {
 export async function ensureSeeded () {
   const { [KEYS.seeded]: seeded } = await browser.storage.local.get(KEYS.seeded)
   if (seeded) return
-  const hosts = SEED_HOSTNAMES.map(makeHost).filter(Boolean)
+  const hosts = SEED_HOSTNAMES.map(makeEntry).filter(Boolean)
   await browser.storage.local.set({ [KEYS.hosts]: hosts, [KEYS.seeded]: true })
 }
 

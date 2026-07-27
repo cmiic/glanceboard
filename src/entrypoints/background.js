@@ -2,7 +2,7 @@ import { defineBackground } from '#imports'
 import { browser } from '@/lib/browser.js'
 import { stripFramingHeaders, isFromOwnExtension, isApprovedTarget } from '@/lib/headers.js'
 import { checkHost } from '@/lib/monitor.js'
-import { getHosts, getSettings, pushResult, ensureSeeded, migrateResultsToPerKey } from '@/lib/storage.js'
+import { getHosts, getSettings, pushResult, ensureSeeded, migrateResultsToPerKey, entryOrigin, entryLabel } from '@/lib/storage.js'
 
 // Firefox MV2 persistent background page. WXT imports this file in Node at build time to read the
 // entrypoint options, so ALL runtime code must live inside main() — only imports stay at the top.
@@ -14,9 +14,10 @@ export default defineBackground({
     const EXT_BASE = browser.runtime.getURL('/') // our extension's moz-extension:// base URL
     const certCache = new Map() // hostname -> { certExpiresInDays, capturedAt }
     const lastOk = new Map() // host id -> last ok/error state (notify only on ok -> error)
-    // Origins the user explicitly added — the allowlist gating framing-header stripping. Kept in sync
-    // with storage.local `hosts` (populated in init, refreshed on change) so the blocking
-    // onHeadersReceived path can check it synchronously.
+    // Origins the user explicitly added — the allowlist gating framing-header stripping. Derived from
+    // each entry's origin, NOT its id: a page entry's id carries a path, while isApprovedTarget
+    // matches on origin. Kept in sync with storage.local `hosts` (populated in init, refreshed on
+    // change) so the blocking onHeadersReceived path can check it synchronously.
     let approvedOrigins = new Set()
 
     function certDaysFromSecurityInfo (info) {
@@ -70,8 +71,9 @@ export default defineBackground({
           await browser.notifications.create(`glanceboard-${host.id}`, {
             type: 'basic',
             iconUrl: browser.runtime.getURL(browser.runtime.getManifest().icons['192']),
-            title: 'Glanceboard — host unreachable',
-            message: `${host.hostname}: ${sample.error || 'check failed'}`
+            title: 'Glanceboard — site unreachable',
+            // The label, not the hostname — two monitored pages of one host must be distinguishable.
+            message: `${entryLabel(host)}: ${sample.error || 'check failed'}`
           })
         } catch (_e) { /* notifications are best-effort */ }
       }
@@ -87,6 +89,7 @@ export default defineBackground({
           // Isolate per-host failures so one bad write/notification doesn't skip the rest this cycle.
           try {
             const result = await checkHost(host.url, { timeoutMs: 15000 })
+            // Cert is a property of the host, so pages of the same host share one cached reading.
             const cert = certCache.get(host.hostname)
             const sample = { ...result, certExpiresInDays: cert ? cert.certExpiresInDays : null }
             await pushResult(host.id, sample, settings.maxSamples)
@@ -119,7 +122,7 @@ export default defineBackground({
       if (area !== 'local') return
       if (changes.hosts) {
         // Keep the strip allowlist in sync from the event payload (synchronous, race-free).
-        approvedOrigins = new Set((changes.hosts.newValue || []).map(h => h.id))
+        approvedOrigins = new Set((changes.hosts.newValue || []).map(entryOrigin).filter(Boolean))
         registerWebRequest()
       }
       if (changes.settings) await scheduleChecks(await getSettings())
@@ -129,7 +132,7 @@ export default defineBackground({
       // Load the strip allowlist and register the header listener FIRST — before any other async
       // setup — so onHeadersReceived is never live with an empty allowlist (which would skip stripping
       // and break previews on cold start / right after an upgrade).
-      approvedOrigins = new Set((await getHosts()).map(h => h.id))
+      approvedOrigins = new Set((await getHosts()).map(entryOrigin).filter(Boolean))
       registerWebRequest()
       browser.permissions.onAdded.addListener(registerWebRequest)
       browser.permissions.onRemoved.addListener(registerWebRequest)

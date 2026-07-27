@@ -77,7 +77,7 @@ onBeforeUnmount(() => {
       v-if="!hosts.length"
       class="empty"
     >
-      No hosts yet — add one from the <strong>Hosts</strong> tab.
+      No sites yet — add one from the <strong>Sites</strong> tab.
     </div>
     <!-- key by mode so cards remount cleanly when the layout mode is switched -->
     <div

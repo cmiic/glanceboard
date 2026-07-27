@@ -11,6 +11,10 @@ settings, and check results live only in the extension's local storage, and noth
   (b) strip framing-protection headers so they can be embedded (see below).
 - **Host access is per-site and optional.** Glanceboard requests permission for an origin only when you
   add (or import) it — it does **not** request access to all sites by default.
+- **Adding a single page still grants the whole host.** You can monitor one page (`example.com/status`)
+  rather than a site root, but the permission Firefox grants — and therefore the framing-header stripping
+  described below — applies to that page's entire origin, not just its path. Adding a page is exactly as
+  privileged as adding its host.
 
 ## Framing-header stripping (the notable part)
 
@@ -20,7 +24,7 @@ headers. This is tightly constrained:
 
 - It runs **only for hosts you explicitly added** — Firefox dispatches the request listener solely for
   origins you've granted permission to, *and* the extension independently re-checks that the framed
-  target origin is in your host list before stripping. So ordinary browsing is never affected, and a
+  target origin is one you added (as a site or as a page on it) before stripping. So ordinary browsing is never affected, and a
   monitored host that redirects to an unrelated origin does not get that origin de-protected.
 - It runs **only inside our own preview iframes** — the request's embedder must be the Glanceboard
   dashboard, so another site embedding a monitored host gains nothing.

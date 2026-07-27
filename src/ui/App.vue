@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { browser } from '@/lib/browser.js'
-import { getHosts, getAllResults, getSettings, onChanged } from '@/lib/storage.js'
+import { getHosts, getAllResults, getSettings, onChanged, entryLabel } from '@/lib/storage.js'
 import { isCertExpiringSoon, isLoadSlow, isStale } from '@/lib/thresholds.js'
 import MonitorGrid from './components/MonitorGrid.vue'
 import HostList from './components/HostList.vue'
@@ -34,6 +34,7 @@ function openDashboard () {
 }
 function openSite (host) { browser.tabs.create({ url: host.url }) }
 
+function label (host) { return entryLabel(host) }
 function statusClass (host) {
   const r = results.value[host.id]
   if (!r) return ''
@@ -85,7 +86,7 @@ function loadText (host) {
         <span
           class="name"
           :title="host.url"
-        >{{ host.hostname }}</span>
+        >{{ label(host) }}</span>
         <span class="popup-load">{{ loadText(host) }}</span>
       </div>
     </div>
@@ -113,7 +114,7 @@ function loadText (host) {
           :class="{ active: tab === 'hosts' }"
           @click="tab = 'hosts'"
         >
-          Hosts
+          Sites
         </button>
         <button
           class="tab"
@@ -124,7 +125,7 @@ function loadText (host) {
         </button>
       </div>
       <span class="spacer" />
-      <span class="popup-load">{{ hosts.length }} hosts</span>
+      <span class="popup-load">{{ hosts.length }} sites</span>
     </div>
 
     <MonitorGrid
