@@ -22,12 +22,13 @@ To show a live preview, Glanceboard embeds each site in a sandboxed `<iframe>`. 
 with `X-Frame-Options` or a CSP `frame-ancestors` directive, so the extension removes those response
 headers. This is tightly constrained:
 
-- It runs **only for hosts you explicitly added** — Firefox dispatches the request listener solely for
+- It runs **only for sites you explicitly added** — Firefox dispatches the request listener solely for
   origins you've granted permission to, *and* the extension independently re-checks that the framed
-  target origin is one you added (as a site or as a page on it) before stripping. So ordinary browsing is never affected, and a
-  monitored host that redirects to an unrelated origin does not get that origin de-protected.
+  target's origin is one you added, whether you added it as a whole site or as a single page on it.
+  So ordinary browsing is never affected, and a monitored site that redirects to an unrelated origin
+  does not get that origin de-protected.
 - It runs **only inside our own preview iframes** — the request's embedder must be the Glanceboard
-  dashboard, so another site embedding a monitored host gains nothing.
+  dashboard, so another site embedding a monitored site gains nothing.
 - Only the **framing** restriction is removed: `X-Frame-Options` is dropped and `frame-ancestors` is
   stripped from CSP; **all other CSP directives are preserved**.
 - Preview iframes are **sandboxed without `allow-top-navigation`**, so an embedded page cannot navigate

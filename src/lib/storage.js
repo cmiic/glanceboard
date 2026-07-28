@@ -6,12 +6,13 @@ import { normalizeTarget } from './url.js'
 //               id = the normalized URL: the bare origin for a whole-site entry, origin + path for a
 //               single monitored page. Several pages of one host are independent entries.
 //   result:<id>: { timestamp[], elapsed[], certExpiresInDays[], ok, error, source, lastTimestamp }
-//               one key per host so concurrent writers (parallel preview iframes) don't clobber each
-//               other. The old monolithic `results` object is migrated away (migrateResultsToPerKey).
+//               one key per monitored entry — so two pages of the same host keep separate histories,
+//               and concurrent writers (parallel preview iframes) don't clobber each other. The old
+//               monolithic `results` object is migrated away (migrateResultsToPerKey).
 //   settings:   { intervalMinutes, previewIntervalMinutes, mode, notificationsEnabled, maxSamples, cardMinWidth, metricDefaults }
 //   seeded:     true once the (currently empty) default host list has been written
 const KEYS = { hosts: 'hosts', results: 'results', settings: 'settings', seeded: 'seeded' }
-// Per-host results key prefix. `result:<host id>` → that host's rolling history.
+// Per-entry results key prefix. `result:<entry id>` → that site's or page's rolling history.
 const RESULT_PREFIX = 'result:'
 
 // No default hosts — the user adds their own. (Kept as an empty list so seeding a default
@@ -105,8 +106,8 @@ export async function setAllHostsMetric (key, value) {
   return next
 }
 
-// Collect every host's history back into the `{ [id]: {...} }` shape the UI expects, reading the
-// per-host `result:<id>` keys (one storage read for all of them).
+// Collect every entry's history back into the `{ [id]: {...} }` shape the UI expects, reading the
+// per-entry `result:<id>` keys (one storage read for all of them).
 export async function getAllResults () {
   const all = await browser.storage.local.get(null)
   const out = {}
@@ -116,10 +117,10 @@ export async function getAllResults () {
   return out
 }
 
-// Append a measurement to a host's rolling history (newest first, matching the old data shape
+// Append a measurement to an entry's rolling history (newest first, matching the old data shape
 // so LineChart ports unchanged). Cert is "sticky": a sample without a fresh cert reading keeps
-// the last known value rather than blanking the column. Each host owns its own `result:<id>` key,
-// so parallel preview iframes writing different hosts can't clobber one another.
+// the last known value rather than blanking the column. Each entry owns its own `result:<id>` key,
+// so parallel preview iframes writing different entries can't clobber one another.
 export async function pushResult (id, sample, maxSamples = DEFAULT_SETTINGS.maxSamples) {
   const key = RESULT_PREFIX + id
   const { [key]: prev0 } = await browser.storage.local.get(key)
@@ -138,7 +139,7 @@ export async function pushResult (id, sample, maxSamples = DEFAULT_SETTINGS.maxS
   return next
 }
 
-// One-time upgrade: fan the legacy monolithic `results` object out into per-host `result:<id>` keys,
+// One-time upgrade: fan the legacy monolithic `results` object out into per-entry `result:<id>` keys,
 // then drop the old key. Idempotent — a no-op once the legacy key is gone.
 export async function migrateResultsToPerKey () {
   const { [KEYS.results]: legacy } = await browser.storage.local.get(KEYS.results)
