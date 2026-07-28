@@ -68,8 +68,9 @@ dashboard's preview iframes only (sub_frame requests whose embedder is our exten
 src/lib/headers.js and src/entrypoints/background.js). Host access is per-site and optional
 (optional_permissions), requested only when the user adds a site.
 
-How to test: open the dashboard (toolbar button -> Open dashboard) -> Hosts tab -> add any public site
-(for example https://example.com); it appears as a live preview tile. No login required.
+How to test: open the dashboard (toolbar button -> Open dashboard) -> Sites tab -> add any public site
+(for example https://example.com); it appears as a live preview tile. A path may be added too (for
+example https://example.com/index.html) to watch a single page. No login required.
 
 Reproducible build: Node 24, then `npm install && npm run build` -> .output/firefox-mv2/.
 (npm install honors ignore-scripts=true; npm run build self-runs wxt prepare.)
@@ -84,6 +85,15 @@ Initial release. An at-a-glance wall of live website previews: add sites and see
 scaled-down preview tiles. Fully local — no account, no backend, no telemetry. Optional per-site load
 time and TLS-certificate-expiry metrics, and optional periodic background checks with local down
 notifications (all off by default).
+```
+
+For 0.2.0:
+
+```text
+You can now watch a single page, not just a site root: add example.com/status and it gets its own tile
+and history. Several pages of the same host are separate tiles. Adding a page grants the same access as
+adding its host — access is still per-host, requested only when you add something. Sites you already
+watch are unaffected and keep their history.
 ```
 
 ## About the innerHTML validator warning
