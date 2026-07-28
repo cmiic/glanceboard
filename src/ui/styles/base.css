@@ -42,9 +42,23 @@ a { color: var(--primary); }
 .field { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .error-text { color: var(--danger); font-size: 13px; }
 
-/* Wrapping flex line rather than a grid: tiles carry free pixel widths, and their visual position
-   comes from CSS `order` (MonitorGrid never reorders the DOM — that would reload the iframes). */
-.grid { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--gap); }
+/* A grid of fine 10px tracks: tiles span as many as they need, so widths stay effectively free while
+   `dense` still packs two short tiles beside one tall tile — a wrapping flex line cannot, because a
+   flex line IS a row, and a tall item leaves dead space beside its shorter neighbours.
+   The gap is carried by each card's margin, not by grid `gap`: at this track size a real gap would
+   be inserted between every 10px track and swamp the content.
+   Visual position comes from CSS `order` — MonitorGrid never reorders the DOM, which would reload
+   every moved tile's preview iframe. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 10px);
+  grid-auto-rows: 10px;
+  grid-auto-flow: row dense;
+  gap: 0;
+  align-items: start;
+  margin: calc(var(--gap) / -2);
+}
+.grid > .card { margin: calc(var(--gap) / 2); align-self: start; }
 
 /* While dragging or resizing, the pointer crosses the live previews; an iframe would swallow the
    pointer events and strand the gesture. */

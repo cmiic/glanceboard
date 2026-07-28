@@ -37,7 +37,8 @@ security-sensitive headers). Firefox is also the only mainstream browser with ex
   ⟳ to reload a tile.
 - **Arrange the wall (desktop).** Drag a tile by its title bar to reorder it, and drag its right edge,
   bottom edge or bottom-right corner to size it on its own. A taller tile shows *more of the page*
-  rather than magnifying it. **Settings → Reset tile sizes** puts everything back to automatic.
+  rather than magnifying it, and the wall packs around it — make one tile double height and two
+  normal tiles stack beside it. **Settings → Reset tile sizes** puts everything back to automatic.
 - **Android:** tiles render lazily as you scroll; tap a tile to open the site.
 
 ## Known limitations

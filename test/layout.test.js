@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   clampTileWidth, clampPreviewHeight, tileLayout, dropIndex, moveItem, domOrder,
-  MIN_TILE_WIDTH, MAX_TILE_WIDTH, MIN_PREVIEW_HEIGHT
+  trackCount, colSpanForWidth, rowSpanForHeight, autoColSpan, estimateCardHeight,
+  MIN_TILE_WIDTH, MAX_TILE_WIDTH, MIN_PREVIEW_HEIGHT, GRID_UNIT
 } from '../src/lib/layout.js'
 
 const rect = (left, top, right, bottom) => ({ left, top, right, bottom })
@@ -68,6 +69,37 @@ test('moveItem: never mutates the input and survives a bad index', () => {
   assert.deepEqual(moveItem(l, -1, 0), ['a', 'b'])
   assert.deepEqual(l, ['a', 'b'])
   assert.deepEqual(moveItem(undefined, 0, 0), [])
+})
+
+test('autoColSpan: an unsized tile is a fixed share of the row, not a stretchy one', () => {
+  // 1914px of tracks at a 320px base: five tiles per row, each 38 tracks = 380px of footprint.
+  const span = autoColSpan(1914, 320, 14)
+  assert.equal(span, 38)
+  assert.equal(span * GRID_UNIT - 14, 366) // inner width
+  // Five of them fill the row; a sixth wraps and is exactly as wide as the five above it — the
+  // whole point, since a lone tile on the last row used to stretch across the entire wall.
+  assert.ok(span * 5 <= trackCount(1914))
+  assert.ok(span * 6 > trackCount(1914))
+})
+
+test('autoColSpan: adapts to narrow windows and never collapses below one tile', () => {
+  assert.equal(autoColSpan(700, 320, 14), Math.floor(trackCount(700) / 2)) // two per row
+  assert.equal(autoColSpan(300, 320, 14), trackCount(300)) // one per row, full width
+  assert.ok(autoColSpan(0, 320, 14) >= 1)
+})
+
+test('span helpers: width rounds to the nearest track, height always covers the content', () => {
+  assert.equal(colSpanForWidth(366, 14), 38) // 380 / 10
+  assert.equal(colSpanForWidth(619, 14), 63) // nearest track
+  assert.equal(rowSpanForHeight(486, 14), 50) // ceil(500 / 10)
+  assert.equal(rowSpanForHeight(481, 14), 50) // rounds UP: never clip the card
+  assert.equal(rowSpanForHeight(0, 0), 1)
+  assert.equal(colSpanForWidth(undefined, 14), 1) // a missing width degenerates to the min span
+})
+
+test('estimateCardHeight: pre-measurement guess follows the 16:10 preview', () => {
+  assert.equal(estimateCardHeight(320), 200 + 200)
+  assert.equal(estimateCardHeight(320, 500), 700) // an explicit preview height wins
 })
 
 test('domOrder: stable regardless of the user order, so tiles never reparent', () => {

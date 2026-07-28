@@ -1,10 +1,11 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { browser } from '@/lib/browser.js'
 import HostCard from './HostCard.vue'
 import { setHostsOrder, setHostLayout } from '@/lib/storage.js'
 import {
-  domOrder, tileLayout, dropIndex, moveItem, clampTileWidth, clampPreviewHeight
+  domOrder, tileLayout, dropIndex, moveItem, clampTileWidth, clampPreviewHeight,
+  trackCount, colSpanForWidth, rowSpanForHeight, autoColSpan, estimateCardHeight, GRID_UNIT
 } from '@/lib/layout.js'
 
 const props = defineProps({
@@ -39,15 +40,33 @@ function layoutOf (host) {
   return { w: resizing.value.w ?? base.w, h: resizing.value.h ?? base.h }
 }
 
-function tileStyle (host) {
-  const { w } = layoutOf(host)
+// --- grid geometry -------------------------------------------------------------------------
+// Tiles span fine tracks rather than sitting on a flex line, so `grid-auto-flow: dense` can pack
+// two short tiles beside one tall one, and an unsized tile alone on the last row keeps the width of
+// the tiles above it instead of stretching across the wall.
+const gridWidth = ref(0)
+const gap = ref(14) // --gap, read from the stylesheet on mount
+const cardHeights = ref(new Map()) // id -> measured px, for the row span
+
+function tileSpans (host) {
+  const { w, h } = layoutOf(host)
   const basis = Number(props.settings?.cardMinWidth) || 320
+  const cols = Math.min(
+    trackCount(gridWidth.value),
+    w ? colSpanForWidth(w, gap.value) : autoColSpan(gridWidth.value, basis, gap.value)
+  )
+  // Until a card has been measured, estimate from its width so the first paint doesn't overlap.
+  const measured = cardHeights.value.get(host.id)
+  const height = measured ?? estimateCardHeight(cols * GRID_UNIT - gap.value, h)
+  return { cols, rows: rowSpanForHeight(height, gap.value) }
+}
+
+function tileStyle (host) {
+  const { cols, rows } = tileSpans(host)
   return {
     order: orderOf.value.get(host.id) ?? 0,
-    // An unsized tile behaves as before: it shares the row and stretches to fill it. A resized tile
-    // is pinned to its pixel width.
-    flex: w ? `0 0 ${w}px` : `1 1 ${basis}px`,
-    maxWidth: '100%'
+    gridColumn: `span ${cols}`,
+    gridRow: `span ${rows}`
   }
 }
 
@@ -212,10 +231,50 @@ async function resolveMode () {
   startTimer()
 }
 
+// Row spans come from what each card actually measures — card height is content-driven (preview
+// aspect, optional chart, optional error banner), so it can't be derived from the stored size.
+let cardObserver = null
+let gridObserver = null
+
+function measureCards () {
+  if (!gridEl.value) return
+  const next = new Map()
+  for (const el of gridEl.value.querySelectorAll('[data-tile-id]')) {
+    next.set(el.dataset.tileId, el.getBoundingClientRect().height)
+  }
+  cardHeights.value = next
+}
+
+// Bind to whatever grid element currently exists and measure it. The grid is behind `v-if` on the
+// host list — on first mount the hosts haven't loaded yet, so there is nothing to observe and this
+// has to run again once tiles appear (and again when the layout mode remounts the grid).
+function syncObservers () {
+  const el = gridEl.value
+  if (!el) return
+  gridWidth.value = el.clientWidth || 0
+  gridObserver?.disconnect()
+  gridObserver?.observe(el)
+  if (!cardObserver) return
+  cardObserver.disconnect()
+  for (const card of el.querySelectorAll('[data-tile-id]')) cardObserver.observe(card)
+  measureCards()
+}
+
 onMounted(() => {
   resolveMode()
   document.addEventListener('visibilitychange', onVisibility)
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--gap')
+  gap.value = parseInt(raw, 10) || 14
+  if ('ResizeObserver' in window) {
+    gridObserver = new ResizeObserver(() => { gridWidth.value = gridEl.value?.clientWidth || 0 })
+    cardObserver = new ResizeObserver(measureCards)
+  }
+  nextTick(syncObservers)
 })
+
+// Tiles appearing/disappearing, or the mode remounting the grid, both need a fresh binding.
+watch(() => tiles.value.map(h => h.id).join('|'), () => nextTick(syncObservers))
+watch(mode, () => nextTick(syncObservers))
 // React to a layout-mode change from Settings without needing a reload.
 watch(() => props.settings?.mode, resolveMode)
 // Restart the wall timer live when the preview-refresh setting changes.
@@ -225,6 +284,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', onVisibility)
   removeGestureListeners(onDragMove, onDragEnd)
   removeGestureListeners(onResizeMove, onResizeEnd)
+  gridObserver?.disconnect()
+  cardObserver?.disconnect()
 })
 </script>
 

@@ -8,6 +8,14 @@
 // DOM nodes would reload each tile it passed over. MonitorGrid therefore renders tiles in a stable
 // order and only changes `order`, which flex/grid honour without touching the tree.
 
+// The wall is a grid of fine tracks: tiles span however many they need, so widths stay effectively
+// free (10px granularity) while the grid still packs. `grid-auto-flow: dense` is what lets two short
+// tiles sit beside one tall tile — a flex line cannot, because a flex line IS a row.
+// The grid runs with gap: 0 and each card carries the gap as margin: with tracks this fine, a real
+// grid gap would be applied between every 10px track and swamp the content.
+export const GRID_UNIT = 10
+export const CARD_CHROME_HEIGHT = 200 // header + metrics + chart, for a pre-measurement estimate
+
 export const MIN_TILE_WIDTH = 240
 export const MAX_TILE_WIDTH = 1920
 export const MIN_PREVIEW_HEIGHT = 100
@@ -69,6 +77,36 @@ export function moveItem (list, from, to) {
   const target = Math.max(0, Math.min(next.length, to > from ? to - 1 : to))
   next.splice(target, 0, item)
   return next
+}
+
+// How many tracks the grid has at this width.
+export function trackCount (gridWidth, unit = GRID_UNIT) {
+  return Math.max(1, Math.floor((Number(gridWidth) || 0) / unit))
+}
+
+// A tile's footprint is its own box plus the gap it carries as margin.
+export function colSpanForWidth (width, gap, unit = GRID_UNIT) {
+  return Math.max(1, Math.round(((Number(width) || 0) + gap) / unit))
+}
+
+export function rowSpanForHeight (height, gap, unit = GRID_UNIT) {
+  return Math.max(1, Math.ceil(((Number(height) || 0) + gap) / unit))
+}
+
+// Span for a tile the user has never resized. Reproduces `repeat(auto-fill, minmax(basis, 1fr))`:
+// as many equal tiles per row as fit at `basis`, each taking an exact share of the row. Crucially
+// this is a fixed span, so a tile alone on the last row is the same width as the tiles above it
+// instead of stretching across the whole wall.
+export function autoColSpan (gridWidth, basis, gap, unit = GRID_UNIT) {
+  const cols = trackCount(gridWidth, unit)
+  const perRow = Math.max(1, Math.floor((cols * unit) / (Math.max(1, Number(basis) || 0) + gap)))
+  return Math.max(1, Math.floor(cols / perRow))
+}
+
+// Height to assume before the card has been measured, so the first paint doesn't overlap.
+export function estimateCardHeight (innerWidth, previewHeight) {
+  const preview = previewHeight ?? Math.round(((Number(innerWidth) || 0) * 800) / 1280)
+  return CARD_CHROME_HEIGHT + Math.max(0, preview)
 }
 
 // Stable DOM order for rendering: sort by id, so changing the user's order never reorders the tree.
