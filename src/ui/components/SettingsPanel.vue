@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { browser } from '@/lib/browser.js'
-import { setSettings, getHosts, addHost, setAllHostsMetric } from '@/lib/storage.js'
+import { setSettings, getHosts, addHost, setAllHostsMetric, resetHostLayouts } from '@/lib/storage.js'
 import { normalizeTarget } from '@/lib/url.js'
 
 const props = defineProps({ settings: { type: Object, default: () => ({}) } })
@@ -33,6 +33,14 @@ function saveMode () { setSettings({ mode: mode.value }) }
 function saveNotifications () { setSettings({ notificationsEnabled: notificationsEnabled.value }) }
 function saveDefaults () { setSettings({ metricDefaults: { cert: defCert.value, load: defLoad.value } }) }
 function applyAll (key, value) { setAllHostsMetric(key, value) }
+
+// Clears per-tile sizes only; the tile order is the user's arrangement, not a size.
+const sizesReset = ref(false)
+async function resetSizes () {
+  await resetHostLayouts()
+  sizesReset.value = true
+  setTimeout(() => { sizesReset.value = false }, 2000)
+}
 
 // The dashboard is a normal extension page (no new-tab override). Expose its URL so the user can
 // set it as their Firefox homepage / new-windows page if they want.
@@ -314,8 +322,22 @@ async function doImport () {
         @change="saveCardWidth"
       >
       <p class="popup-load">
-        Larger → fewer, bigger tiles; the column count auto-fits your window.
+        Larger → fewer, bigger tiles; the column count auto-fits your window. On desktop you can also
+        drag a tile by its title bar to reorder it, and drag its right or bottom edge (or the bottom-right
+        corner) to size it individually — a taller tile shows more of the page.
       </p>
+      <div class="field">
+        <button
+          class="btn btn-sm"
+          @click="resetSizes"
+        >
+          Reset tile sizes
+        </button>
+        <span
+          v-if="sizesReset"
+          class="popup-load"
+        >Tiles are back to automatic sizing</span>
+      </div>
     </div>
 
     <div class="card setting">

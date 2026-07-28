@@ -2,9 +2,11 @@ import { browser } from './browser.js'
 import { normalizeTarget } from './url.js'
 
 // storage.local schema:
-//   hosts:      [{ id, url, hostname, origin, label, addedAt, metrics:{cert,load} }]
+//   hosts:      [{ id, url, hostname, origin, label, addedAt, metrics:{cert,load}, layout:{w,h} }]
 //               id = the normalized URL: the bare origin for a whole-site entry, origin + path for a
 //               single monitored page. Several pages of one host are independent entries.
+//               Array order = the user's tile order. layout = desktop tile size in px, absent or
+//               null on an axis meaning "size automatically".
 //   result:<id>: { timestamp[], elapsed[], certExpiresInDays[], ok, error, source, lastTimestamp }
 //               one key per monitored entry — so two pages of the same host keep separate histories,
 //               and concurrent writers (parallel preview iframes) don't clobber each other. The old
@@ -94,6 +96,45 @@ export async function removeHost (id) {
 export async function setHostMetric (id, key, value) {
   const hosts = await getHosts()
   const next = hosts.map(h => (h.id === id ? { ...h, metrics: { ...h.metrics, [key]: value } } : h))
+  await setHosts(next)
+  return next
+}
+
+// Persist one tile's desktop size. `patch` is { w?, h? } in px; null on an axis = size it
+// automatically. Sizes are clamped by the caller (lib/layout.js).
+export async function setHostLayout (id, patch) {
+  const hosts = await getHosts()
+  const next = hosts.map(h => (h.id === id ? { ...h, layout: { ...h.layout, ...patch } } : h))
+  await setHosts(next)
+  return next
+}
+
+// Persist the user's tile order. The stored `hosts` array order IS the order — the monitor grid
+// renders in a stable DOM order and expresses this through CSS `order`, so rewriting the array
+// never reparents (and therefore never reloads) a preview iframe.
+export async function setHostsOrder (ids) {
+  const hosts = await getHosts()
+  const byId = new Map(hosts.map(h => [h.id, h]))
+  const next = []
+  for (const id of ids || []) {
+    const host = byId.get(id)
+    if (host && !next.includes(host)) next.push(host)
+  }
+  // Anything the caller didn't mention (added while dragging) keeps its place at the end.
+  for (const host of hosts) if (!next.includes(host)) next.push(host)
+  await setHosts(next)
+  return next
+}
+
+// Drop every tile back to automatic sizing. Order is left alone — it is the user's arrangement,
+// not a size, and is cheap to redo deliberately.
+export async function resetHostLayouts () {
+  const hosts = await getHosts()
+  const next = hosts.map(h => {
+    const copy = { ...h }
+    delete copy.layout
+    return copy
+  })
   await setHosts(next)
   return next
 }

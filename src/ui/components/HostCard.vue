@@ -8,8 +8,15 @@ const props = defineProps({
   host: { type: Object, required: true },
   result: { type: Object, default: () => ({}) },
   mode: { type: String, default: 'desktop' }, // 'desktop' | 'mobile'
-  reloadNonce: { type: Number, default: 0 }
+  reloadNonce: { type: Number, default: 0 },
+  // Desktop tile size, { w, h } in px with null = automatic. Width is applied by MonitorGrid (it
+  // owns the flex line); only the preview height is applied here.
+  layout: { type: Object, default: () => ({}) },
+  // Drag-to-reorder and resize are desktop-only; MonitorGrid runs the gestures.
+  arrangeable: { type: Boolean, default: false }
 })
+
+const emit = defineEmits(['dragstart', 'resizestart'])
 
 const cardEl = ref(null)
 const previewBox = ref(null)
@@ -43,7 +50,22 @@ const lastCheckText = computed(() =>
 function applyScale () {
   const w = previewBox.value?.clientWidth || 320
   scale.value = w / 1280
-  previewHeight.value = Math.round(800 * scale.value)
+  // A resized tile keeps the width-derived scale and grows its viewport instead, so a taller tile
+  // reveals more of the page rather than magnifying the same 800px of it.
+  previewHeight.value = props.layout?.h ?? Math.round(800 * scale.value)
+}
+// The iframe is a fixed 1280px-wide viewport scaled to the tile; its height is whatever the visible
+// box covers at that scale. Resizing an iframe does not reload it.
+const frameHeight = computed(() => Math.round(previewHeight.value / (scale.value || 1)))
+
+function onHeadPointerDown (event) {
+  // Left button only, and never from the ⟳ / ↗ buttons.
+  if (!props.arrangeable || event.button !== 0 || event.target.closest('button')) return
+  emit('dragstart', { id: props.host.id, event })
+}
+function onResizePointerDown (edge, event) {
+  if (event.button !== 0) return
+  emit('resizestart', { id: props.host.id, edge, event })
 }
 function loadPreview () {
   loadStart.value = performance.now()
@@ -84,6 +106,10 @@ onMounted(() => {
 })
 onBeforeUnmount(() => { ro?.disconnect(); io?.disconnect() })
 
+// A resize changes the preview box height without the width changing, so ResizeObserver may not
+// fire — recompute explicitly.
+watch(() => props.layout?.h, applyScale)
+
 // Desktop "wall" auto-refresh, or manual refresh, bumps the nonce. Defer an auto-refresh while the
 // tile is hovered so it doesn't interrupt interaction with the (desktop-interactive) preview.
 let pendingReload = false
@@ -106,10 +132,14 @@ function onMouseLeave () {
     @mouseenter="onMouseEnter"
     @mouseleave="onMouseLeave"
   >
-    <div class="card-head">
+    <div
+      class="card-head"
+      :class="{ draggable: arrangeable }"
+      @pointerdown="onHeadPointerDown"
+    >
       <span
         class="card-host"
-        :title="host.url"
+        :title="arrangeable ? host.url + ' — drag to reorder' : host.url"
       >{{ label }}</span>
       <span class="card-actions">
         <button
@@ -188,7 +218,7 @@ function onMouseLeave () {
         v-if="frameSrc"
         :key="frameKey"
         :src="frameSrc"
-        :style="{ transform: 'scale(' + scale + ')' }"
+        :style="{ transform: 'scale(' + scale + ')', height: frameHeight + 'px' }"
         sandbox="allow-scripts allow-same-origin allow-forms"
         referrerpolicy="no-referrer"
         @load="onFrameLoad"
@@ -228,5 +258,23 @@ function onMouseLeave () {
     >
       {{ latest.error || 'Check failed' }}
     </div>
+
+    <template v-if="arrangeable">
+      <div
+        class="resize-handle east"
+        title="Drag to resize width"
+        @pointerdown="onResizePointerDown('east', $event)"
+      />
+      <div
+        class="resize-handle south"
+        title="Drag to resize height"
+        @pointerdown="onResizePointerDown('south', $event)"
+      />
+      <div
+        class="resize-handle corner"
+        title="Drag to resize"
+        @pointerdown="onResizePointerDown('corner', $event)"
+      />
+    </template>
   </div>
 </template>
