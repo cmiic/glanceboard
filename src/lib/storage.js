@@ -1,15 +1,18 @@
 import { browser } from './browser.js'
-import { normalizeHost } from './url.js'
+import { normalizeTarget } from './url.js'
 
 // storage.local schema:
-//   hosts:      [{ id, url, hostname, addedAt, metrics:{cert,load} }]   id = origin (unique key)
+//   hosts:      [{ id, url, hostname, origin, label, addedAt, metrics:{cert,load} }]
+//               id = the normalized URL: the bare origin for a whole-site entry, origin + path for a
+//               single monitored page. Several pages of one host are independent entries.
 //   result:<id>: { timestamp[], elapsed[], certExpiresInDays[], ok, error, source, lastTimestamp }
-//               one key per host so concurrent writers (parallel preview iframes) don't clobber each
-//               other. The old monolithic `results` object is migrated away (migrateResultsToPerKey).
+//               one key per monitored entry — so two pages of the same host keep separate histories,
+//               and concurrent writers (parallel preview iframes) don't clobber each other. The old
+//               monolithic `results` object is migrated away (migrateResultsToPerKey).
 //   settings:   { intervalMinutes, previewIntervalMinutes, mode, notificationsEnabled, maxSamples, cardMinWidth, metricDefaults }
 //   seeded:     true once the (currently empty) default host list has been written
 const KEYS = { hosts: 'hosts', results: 'results', settings: 'settings', seeded: 'seeded' }
-// Per-host results key prefix. `result:<host id>` → that host's rolling history.
+// Per-entry results key prefix. `result:<entry id>` → that site's or page's rolling history.
 const RESULT_PREFIX = 'result:'
 
 // No default hosts — the user adds their own. (Kept as an empty list so seeding a default
@@ -26,10 +29,20 @@ export const DEFAULT_SETTINGS = {
   metricDefaults: { cert: false, load: false } // default visibility of the cert/load tiles for new hosts
 }
 
-function makeHost (input) {
-  const n = normalizeHost(input)
+function makeEntry (input) {
+  const n = normalizeTarget(input)
   if (!n) return null
-  return { id: n.id, url: n.url, hostname: n.hostname, addedAt: Date.now() }
+  return { id: n.id, url: n.url, hostname: n.hostname, origin: n.origin, label: n.label, addedAt: Date.now() }
+}
+
+// `origin` and `label` arrived with page support, so entries stored by an older version lack them.
+// Derive rather than migrate — the stored `url` is always enough to recompute both.
+export function entryOrigin (entry) {
+  return entry?.origin || normalizeTarget(entry?.url)?.origin || null
+}
+
+export function entryLabel (entry) {
+  return entry?.label || normalizeTarget(entry?.url)?.label || entry?.hostname || ''
 }
 
 export async function getHosts () {
@@ -42,10 +55,11 @@ export async function setHosts (hosts) {
 }
 
 export async function addHost (input) {
-  const host = makeHost(input)
-  if (!host) throw new Error('Invalid host or URL')
+  const host = makeEntry(input)
+  if (!host) throw new Error('Invalid site or URL')
   const hosts = await getHosts()
-  if (hosts.some(h => h.id === host.id)) return hosts // dedupe
+  // Dedupe on the full id, so two pages of the same host are kept as separate entries.
+  if (hosts.some(h => h.id === host.id)) return hosts
   const { metricDefaults } = await getSettings()
   host.metrics = { ...metricDefaults }
   const next = [...hosts, host]
@@ -59,11 +73,12 @@ export async function removeHost (id) {
   const next = hosts.filter(h => h.id !== id)
   await setHosts(next)
 
-  // Revoke the per-host permission once no remaining host needs its origin match pattern, so a
-  // removed host is truly no longer accessible (preserves the per-host least-privilege model).
-  const pattern = removed && normalizeHost(removed.url)?.originPattern
+  // Revoke the per-host permission once no remaining entry needs its origin match pattern, so a
+  // removed entry is truly no longer accessible (preserves the per-host least-privilege model).
+  // Another page of the same host still counts as needing it.
+  const pattern = removed && normalizeTarget(removed.url)?.originPattern
   if (pattern && browser.permissions?.remove) {
-    const stillNeeded = next.some(h => normalizeHost(h.url)?.originPattern === pattern)
+    const stillNeeded = next.some(h => normalizeTarget(h.url)?.originPattern === pattern)
     if (!stillNeeded) {
       try {
         await browser.permissions.remove({ origins: [pattern] })
@@ -91,8 +106,8 @@ export async function setAllHostsMetric (key, value) {
   return next
 }
 
-// Collect every host's history back into the `{ [id]: {...} }` shape the UI expects, reading the
-// per-host `result:<id>` keys (one storage read for all of them).
+// Collect every entry's history back into the `{ [id]: {...} }` shape the UI expects, reading the
+// per-entry `result:<id>` keys (one storage read for all of them).
 export async function getAllResults () {
   const all = await browser.storage.local.get(null)
   const out = {}
@@ -102,10 +117,10 @@ export async function getAllResults () {
   return out
 }
 
-// Append a measurement to a host's rolling history (newest first, matching the old data shape
+// Append a measurement to an entry's rolling history (newest first, matching the old data shape
 // so LineChart ports unchanged). Cert is "sticky": a sample without a fresh cert reading keeps
-// the last known value rather than blanking the column. Each host owns its own `result:<id>` key,
-// so parallel preview iframes writing different hosts can't clobber one another.
+// the last known value rather than blanking the column. Each entry owns its own `result:<id>` key,
+// so parallel preview iframes writing different entries can't clobber one another.
 export async function pushResult (id, sample, maxSamples = DEFAULT_SETTINGS.maxSamples) {
   const key = RESULT_PREFIX + id
   const { [key]: prev0 } = await browser.storage.local.get(key)
@@ -124,7 +139,7 @@ export async function pushResult (id, sample, maxSamples = DEFAULT_SETTINGS.maxS
   return next
 }
 
-// One-time upgrade: fan the legacy monolithic `results` object out into per-host `result:<id>` keys,
+// One-time upgrade: fan the legacy monolithic `results` object out into per-entry `result:<id>` keys,
 // then drop the old key. Idempotent — a no-op once the legacy key is gone.
 export async function migrateResultsToPerKey () {
   const { [KEYS.results]: legacy } = await browser.storage.local.get(KEYS.results)
@@ -158,7 +173,7 @@ export async function setSettings (patch) {
 export async function ensureSeeded () {
   const { [KEYS.seeded]: seeded } = await browser.storage.local.get(KEYS.seeded)
   if (seeded) return
-  const hosts = SEED_HOSTNAMES.map(makeHost).filter(Boolean)
+  const hosts = SEED_HOSTNAMES.map(makeEntry).filter(Boolean)
   await browser.storage.local.set({ [KEYS.hosts]: hosts, [KEYS.seeded]: true })
 }
 

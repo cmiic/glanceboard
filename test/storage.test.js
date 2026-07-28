@@ -28,14 +28,45 @@ const storage = await import('../src/lib/storage.js')
 
 beforeEach(() => { for (const k of Object.keys(data)) delete data[k]; revokedOrigins.length = 0 })
 
-test('addHost: dedupes and applies metric defaults', async () => {
+test('addHost: dedupes identical entries and applies metric defaults', async () => {
   await storage.setSettings({ metricDefaults: { cert: true, load: false } })
   await storage.addHost('example.com')
-  await storage.addHost('https://example.com/path') // same origin → dedup
+  await storage.addHost('https://example.com/') // same normalized id → dedup
   const hosts = await storage.getHosts()
   assert.equal(hosts.length, 1)
   assert.equal(hosts[0].id, 'https://example.com')
   assert.deepEqual(hosts[0].metrics, { cert: true, load: false })
+})
+
+test('addHost: a page is its own entry alongside the host root', async () => {
+  await storage.addHost('example.com')
+  await storage.addHost('example.com/blog')
+  await storage.addHost('example.com/status')
+  const hosts = await storage.getHosts()
+  assert.deepEqual(hosts.map(h => h.id), [
+    'https://example.com', 'https://example.com/blog', 'https://example.com/status'
+  ])
+  assert.deepEqual(hosts.map(h => h.label), [
+    'example.com', 'example.com/blog', 'example.com/status'
+  ])
+  assert.ok(hosts.every(h => h.origin === 'https://example.com')) // one origin, three entries
+})
+
+test('pages of one host keep separate histories', async () => {
+  await storage.pushResult('https://example.com/blog', { ok: true, elapsed: 10, timestamp: 1 })
+  await storage.pushResult('https://example.com/status', { ok: false, elapsed: null, timestamp: 2 })
+  const r = await storage.getAllResults()
+  assert.deepEqual(r['https://example.com/blog'].elapsed, [10])
+  assert.equal(r['https://example.com/status'].ok, false)
+})
+
+test('entryOrigin / entryLabel: derived for entries stored before page support', async () => {
+  const legacy = { id: 'https://example.com', url: 'https://example.com', hostname: 'example.com' }
+  assert.equal(storage.entryOrigin(legacy), 'https://example.com')
+  assert.equal(storage.entryLabel(legacy), 'example.com')
+  const page = { url: 'https://example.com/blog' }
+  assert.equal(storage.entryOrigin(page), 'https://example.com') // origin, not the page id
+  assert.equal(storage.entryLabel(page), 'example.com/blog')
 })
 
 test('removeHost: deletes results and revokes the host permission', async () => {
@@ -44,6 +75,15 @@ test('removeHost: deletes results and revokes the host permission', async () => 
   await storage.removeHost('https://example.com')
   assert.deepEqual(await storage.getHosts(), [])
   assert.deepEqual(await storage.getAllResults(), {})
+  assert.deepEqual(revokedOrigins, ['https://example.com/*'])
+})
+
+test('removeHost: keeps the permission while another page of the same host remains', async () => {
+  await storage.addHost('example.com/blog')
+  await storage.addHost('example.com/status')
+  await storage.removeHost('https://example.com/blog')
+  assert.deepEqual(revokedOrigins, []) // /status still needs the origin
+  await storage.removeHost('https://example.com/status')
   assert.deepEqual(revokedOrigins, ['https://example.com/*'])
 })
 

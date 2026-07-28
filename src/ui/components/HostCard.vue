@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import LineChart from './LineChart.vue'
 import { isCertExpiringSoon, isLoadSlow, isStale } from '@/lib/thresholds.js'
-import { pushResult } from '@/lib/storage.js'
+import { pushResult, entryLabel } from '@/lib/storage.js'
 
 const props = defineProps({
   host: { type: Object, required: true },
@@ -20,6 +20,8 @@ const previewHeight = ref(200)
 const frameKey = ref(0)
 const hovered = ref(false)
 
+// hostname for a whole-site entry, hostname + path for a single monitored page.
+const label = computed(() => entryLabel(props.host))
 const latest = computed(() => {
   const r = props.result || {}
   return {
@@ -108,7 +110,7 @@ function onMouseLeave () {
       <span
         class="card-host"
         :title="host.url"
-      >{{ host.hostname }}</span>
+      >{{ label }}</span>
       <span class="card-actions">
         <button
           class="btn btn-icon btn-sm"

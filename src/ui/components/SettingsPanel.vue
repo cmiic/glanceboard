@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue'
 import { browser } from '@/lib/browser.js'
 import { setSettings, getHosts, addHost, setAllHostsMetric } from '@/lib/storage.js'
-import { normalizeHost } from '@/lib/url.js'
+import { normalizeTarget } from '@/lib/url.js'
 
 const props = defineProps({ settings: { type: Object, default: () => ({}) } })
 
@@ -75,7 +75,7 @@ function onFile (e) {
       const parsed = JSON.parse(String(reader.result))
       const list = Array.isArray(parsed) ? parsed : parsed.hosts
       const urls = (list || []).map(h => (typeof h === 'string' ? h : h?.url)).filter(Boolean)
-      if (!urls.length) { importError.value = 'No hosts found in file'; pending.value = null; return }
+      if (!urls.length) { importError.value = 'No sites found in file'; pending.value = null; return }
       pending.value = urls
     } catch {
       importError.value = 'Invalid JSON file'
@@ -87,17 +87,18 @@ function onFile (e) {
 
 async function doImport () {
   if (!pending.value?.length) return
-  const valid = pending.value.filter(u => normalizeHost(u))
+  const valid = pending.value.filter(u => normalizeTarget(u))
   const skipped = pending.value.length - valid.length
-  if (!valid.length) { importError.value = 'No valid hosts found in the file'; return }
-  const origins = [...new Set(valid.map(u => normalizeHost(u).originPattern))]
+  if (!valid.length) { importError.value = 'No valid sites found in the file'; return }
+  // Pages of the same host collapse to one origin pattern, so the prompt asks only once per host.
+  const origins = [...new Set(valid.map(u => normalizeTarget(u).originPattern))]
   try {
     // One permission prompt for all imported origins (button click keeps the user gesture).
     const granted = await browser.permissions.request({ origins })
-    if (!granted) { importError.value = 'Permission is needed to monitor imported hosts'; return }
+    if (!granted) { importError.value = 'Permission is needed to monitor imported sites'; return }
     for (const u of valid) await addHost(u).catch(() => {})
     importError.value = ''
-    importNotice.value = `Imported ${valid.length} host(s)` + (skipped ? `; skipped ${skipped} invalid` : '')
+    importNotice.value = `Imported ${valid.length} site(s)` + (skipped ? `; skipped ${skipped} invalid` : '')
     pending.value = null
   } catch (e) {
     importError.value = e?.message || String(e)
@@ -171,7 +172,8 @@ async function doImport () {
       </select>
       <p class="popup-load">
         Off by default — nothing is fetched in the background. Previews and metrics still update when you
-        open the dashboard. Turn this on only for sites where periodic checking is appropriate.
+        open the dashboard. Turn this on only for sites where periodic checking is appropriate. Each entry
+        is checked separately, so several pages of one host mean several requests per cycle.
       </p>
     </div>
 
@@ -336,7 +338,7 @@ async function doImport () {
     </div>
 
     <div class="card setting">
-      <label class="setting-label">Hosts</label>
+      <label class="setting-label">Sites</label>
       <div class="field">
         <button
           class="btn"
@@ -362,7 +364,7 @@ async function doImport () {
           class="btn btn-primary"
           @click="doImport"
         >
-          Grant &amp; import {{ pending.length }} host(s)
+          Grant &amp; import {{ pending.length }} site(s)
         </button>
       </div>
       <span

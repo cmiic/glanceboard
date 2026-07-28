@@ -1,6 +1,6 @@
 <script setup>
 import { isCertExpiringSoon, isLoadSlow, isStale } from '@/lib/thresholds.js'
-import { removeHost, setHostMetric } from '@/lib/storage.js'
+import { removeHost, setHostMetric, entryLabel } from '@/lib/storage.js'
 import AddHostForm from './AddHostForm.vue'
 
 const props = defineProps({
@@ -17,6 +17,7 @@ function statusClass (host) {
     isStale(r.lastTimestamp)
   return bad ? 'bad' : 'ok'
 }
+function label (host) { return entryLabel(host) }
 function toggle (host, key, e) { setHostMetric(host.id, key, e.target.checked) }
 function remove (host) { removeHost(host.id) }
 </script>
@@ -28,7 +29,7 @@ function remove (host) { removeHost(host.id) }
       class="popup-load"
       style="margin: 12px 0 8px"
     >
-      {{ hosts.length }} host(s) — choose which metrics each tile shows
+      {{ hosts.length }} site(s) — add a path to watch a single page. Choose which metrics each tile shows.
     </p>
     <div
       v-for="host in hosts"
@@ -42,7 +43,7 @@ function remove (host) { removeHost(host.id) }
       <span
         class="name"
         :title="host.url"
-      >{{ host.hostname }}</span>
+      >{{ label(host) }}</span>
       <label class="metric-toggle">
         <input
           type="checkbox"
