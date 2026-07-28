@@ -101,7 +101,8 @@ For 0.2.1:
 ```text
 Fixes the load-time chart tooltip: hovering a tile's chart now shows the reading from anywhere over the
 chart, instead of only within a pixel or two of a data point. The tooltip also no longer disappears
-while you are reading it when other tiles refresh.
+while you are reading it when other tiles refresh. The chart draws its shaded area under the line
+again, which had never rendered.
 ```
 
 ## About the innerHTML validator warning
