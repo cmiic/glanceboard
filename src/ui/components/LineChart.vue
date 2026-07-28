@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import {
   Chart as ChartJS,
   Tooltip,
+  Filler,
   CategoryScale,
   LinearScale,
   LineElement,
@@ -11,7 +12,10 @@ import {
 import { Line } from 'vue-chartjs'
 import { chartSeries, seriesSignature } from '@/lib/chart.js'
 
-ChartJS.register(Tooltip, CategoryScale, LinearScale, PointElement, LineElement)
+// Register only what this chart draws — chart.js v4 tree-shakes the rest. Filler is required by the
+// dataset's `fill: true`; without it the area under the line silently does not render (it didn't,
+// until 0.2.1). Drop it only together with `fill`/`backgroundColor` below.
+ChartJS.register(Tooltip, Filler, CategoryScale, LinearScale, PointElement, LineElement)
 
 const props = defineProps({
   labels: { type: Array, required: true },
