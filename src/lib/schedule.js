@@ -6,8 +6,10 @@
 
 export const STEP_CAP_MS = 2000
 
-// Gap between consecutive sites. The cap is the target, but a cycle must still fit inside the
-// interval it repeats on — with enough sites, `intervalMs / count` is the tighter bound and wins.
+// Gap between consecutive sites. The cap is the target, but the gaps alone must still fit inside the
+// interval the cycle repeats on — with enough sites, `intervalMs / count` is the tighter bound and
+// wins. Only the gaps are budgeted, not how long each site takes to answer, so a cycle of slow sites
+// can still run past its interval.
 // intervalMs <= 0 means "no repeating cycle" (a one-off sweep), so the cap applies unshortened.
 export function stepDelay (count, intervalMs, cap = STEP_CAP_MS) {
   const n = Math.floor(Number(count) || 0)

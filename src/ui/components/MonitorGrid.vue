@@ -203,7 +203,9 @@ async function sweep (ids) {
     await pacedSweep(ids, {
       stepMs: stepDelay(ids.length, previewMs.value),
       start: (id) => {
-        reloadNonces.value = { ...reloadNonces.value, [id]: (reloadNonces.value[id] || 0) + 1 }
+        // A ref holding an object is a deep reactive proxy, so assigning a key — including a new
+        // one — is reactive without rebuilding the whole map on every tile.
+        reloadNonces.value[id] = (reloadNonces.value[id] || 0) + 1
       },
       waitForDone: waitForTile,
       // Superseded by a newer sweep, or no longer a desktop wall.

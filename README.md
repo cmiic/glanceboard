@@ -35,9 +35,9 @@ security-sensitive headers). Firefox is also the only mainstream browser with ex
 - **Desktop:** every tile renders live and is interactive; the wall auto-refreshes every ~2 minutes
   while the tab is in focus (backgrounded tabs pause). Use the ↗ button to open a site in a new tab,
   ⟳ to reload a tile.
-- **Paced loading.** Tiles load one at a time — each starts when the previous finishes, or after 2
-  seconds if it's still going — so opening or refreshing the wall never fires every request at once.
-  Background checks are spaced the same way.
+- **Paced loading.** Tiles load one at a time — each starts when the previous finishes, or after up
+  to 2 seconds if it's still going — so opening or refreshing the wall never fires every request at
+  once. Background checks are spaced the same way.
 - **Arrange the wall (desktop).** Drag a tile by its title bar to put it anywhere — beside a taller
   tile or below it — and drag its right edge, bottom edge or bottom-right corner to size it. A taller
   tile shows *more of the page* rather than magnifying it. Tiles keep their arrangement as the window

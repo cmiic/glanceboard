@@ -88,7 +88,9 @@ export default defineBackground({
         const [hosts, settings] = await Promise.all([getHosts(), getSettings()])
         // These checks were already sequential — one request in flight at a time — but ran with no
         // gap, so a set of quick hosts still got hit back to back. Space them out, shortening the
-        // gap if the sites wouldn't otherwise fit inside the check interval.
+        // gap when the gaps alone wouldn't fit inside the check interval. Only the gaps are
+        // budgeted: request time is not, so a cycle of slow or timing-out hosts can still overrun
+        // its interval, and the `running` guard above drops the tick that lands during it.
         const gapMs = stepDelay(hosts.length, (Number(settings.intervalMinutes) || 0) * 60000)
         const startedAt = Date.now()
         for (const [index, host] of hosts.entries()) {

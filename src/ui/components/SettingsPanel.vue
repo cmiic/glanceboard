@@ -221,8 +221,8 @@ async function doImport () {
       <p class="popup-load">
         Off by default — the open dashboard loads each live preview once. Turn this on to auto-reload
         the previews while the dashboard is open (desktop layout only). Previews load one at a time,
-        each starting when the previous finishes (or after 2 seconds), so the sites are never all
-        requested at once.
+        each starting when the previous finishes (or after up to 2 seconds), so the sites are never
+        all requested at once.
       </p>
     </div>
 
