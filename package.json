@@ -1,6 +1,6 @@
 {
   "name": "glanceboard",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "Glanceboard — an at-a-glance wall of live website previews (Firefox extension)",

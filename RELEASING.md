@@ -105,7 +105,8 @@ while you are reading it when other tiles refresh. The chart draws its shaded ar
 again, which had never rendered.
 ```
 
-For 0.3.0 (includes the 0.2.1 fixes above, which were never published):
+For 0.3.1 — the first release since 0.2.0, so it carries everything from 0.2.1 and 0.3.0 too
+(neither was published):
 
 ```text
 Arrange your wall: on desktop, drag a tile by its title bar to put it anywhere — beside a taller tile
