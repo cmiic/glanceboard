@@ -195,8 +195,13 @@ function onTileLoaded (id) {
   if (step?.id === id) step.finish()
 }
 
+// One sweep at a time. `step` is shared, so a second sweep starting on top of a running one takes
+// over the slot the first is waiting on: both would have a tile in flight, which is the burst this
+// pacing exists to prevent. Callers that mean to REPLACE a sweep call cancelSweep() first, which
+// clears the flag — so this guard only ever blocks an accidental overlap (a sweep started while the
+// tab was hidden, still running when the tab came back and asked for a refresh).
 async function sweep (ids) {
-  if (!ids.length) return
+  if (!ids?.length || isMobile.value || sweeping) return
   const run = ++sweepId
   sweeping = true
   try {
