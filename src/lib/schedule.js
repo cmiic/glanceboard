@@ -17,6 +17,16 @@ export function stepDelay (count, intervalMs, cap = STEP_CAP_MS) {
   return Math.max(0, Math.min(cap, Math.floor(budget / n)))
 }
 
+// How long to wait before starting the site at `index`, measured from when the cycle began rather
+// than from the end of the previous request. Sleeping a full gap AFTER each request adds the
+// request time on top of it: 30 hosts on a one-minute interval would spend 58s sleeping plus every
+// request's duration, overrun the interval, and have the next cycle dropped by the run guard —
+// halving the effective cadence. Anchoring to the start lets a slow request eat into its own gap.
+export function delayUntilSlot (index, gapMs, startedAt, now) {
+  const due = Number(startedAt) + Math.max(0, Math.floor(Number(index) || 0)) * (Number(gapMs) || 0)
+  return Math.max(0, due - Number(now))
+}
+
 // Walk a list of sites one at a time: start each, then hold until it reports it finished or its
 // step elapses — whichever comes first. Only one site is normally in flight, and a site that never
 // reports back (or is deferred, e.g. a hovered tile) can hold the sweep up for one step at most.

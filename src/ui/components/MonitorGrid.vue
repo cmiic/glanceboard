@@ -220,6 +220,19 @@ async function sweep (ids) {
 function cancelSweep () {
   sweepId++
   step?.finish()
+  // The abandoned run's `finally` sees a bumped sweepId and skips its own cleanup, so clear the flag
+  // here — otherwise `sweeping` stays true for good and blocks every later sweep.
+  sweeping = false
+}
+
+// A nonce means "this card has been told to load", which only holds while the card is the same
+// instance. Drop the entry for anything not currently mounted, so a site removed and added again is
+// swept afresh rather than looking like it had already loaded.
+function pruneNonces () {
+  const live = new Set(tiles.value.map(t => t.id))
+  const kept = {}
+  for (const [id, nonce] of Object.entries(reloadNonces.value)) if (live.has(id)) kept[id] = nonce
+  if (Object.keys(kept).length !== Object.keys(reloadNonces.value).length) reloadNonces.value = kept
 }
 
 // Load whatever has never been loaded — the whole wall on open, or just a newly added site.
@@ -250,9 +263,16 @@ function onVisibility () {
   if (document.hidden) {
     if (timer) { clearInterval(timer); timer = null }
     cancelSweep()
-  } else if (!isMobile.value && previewMs.value >= 60000) {
+    return
+  }
+  if (isMobile.value) return
+  if (previewMs.value >= 60000) {
     sweep(tilesInReadingOrder())
     startTimer()
+  } else {
+    // Refresh is off, but hiding the tab may have cancelled the initial sweep part-way. Finish it,
+    // or those tiles sit on "Waiting to load…" for the life of the page.
+    sweepNewTiles()
   }
 }
 
@@ -284,8 +304,19 @@ onMounted(() => {
 })
 // The wall element lives behind v-if on the host list, which is empty on the first mount. A newly
 // added site joins the paced sweep rather than loading the instant it appears.
-watch(() => tiles.value.length, () => nextTick(() => { syncWall(); sweepNewTiles() }))
-watch(mode, () => nextTick(() => { syncWall(); sweepNewTiles() }))
+watch(() => tiles.value.map(t => t.id).join('|'), () => nextTick(() => {
+  pruneNonces()
+  syncWall()
+  sweepNewTiles()
+}))
+// The wall is keyed by mode, so switching layout remounts every HostCard and it loses its iframe.
+// Their surviving nonces would read as "already loaded" — and a remounted card never sees its
+// initial prop change, so nothing would tell it to load. Start the new cards from nothing.
+watch(mode, () => {
+  cancelSweep()
+  reloadNonces.value = {}
+  nextTick(() => { syncWall(); sweepNewTiles() })
+})
 watch(() => props.settings?.previewIntervalMinutes, startTimer)
 watch(() => props.settings?.mode, resolveMode)
 

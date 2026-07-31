@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { stepDelay, pacedSweep, STEP_CAP_MS } from '../src/lib/schedule.js'
+import { stepDelay, delayUntilSlot, pacedSweep, STEP_CAP_MS } from '../src/lib/schedule.js'
 
 const MINUTE = 60000
 
@@ -35,6 +35,38 @@ test('stepDelay: never returns a negative or fractional delay', () => {
 
 test('stepDelay: an explicit cap overrides the default', () => {
   assert.equal(stepDelay(5, 10 * MINUTE, 500), 500)
+})
+
+test('delayUntilSlot: slots are anchored to the start of the cycle', () => {
+  const t0 = 1_000_000
+  assert.equal(delayUntilSlot(0, 2000, t0, t0), 0)
+  assert.equal(delayUntilSlot(1, 2000, t0, t0), 2000)
+  assert.equal(delayUntilSlot(3, 2000, t0, t0), 6000)
+})
+
+test('delayUntilSlot: a slow request eats into its own gap instead of adding to it', () => {
+  const t0 = 1_000_000
+  // Host 0 took 1.5s. Host 1 is still due at t0+2000, so it waits 500ms, not another full 2000.
+  assert.equal(delayUntilSlot(1, 2000, t0, t0 + 1500), 500)
+  // A request slower than the whole gap: start immediately, never negative.
+  assert.equal(delayUntilSlot(1, 2000, t0, t0 + 5000), 0)
+})
+
+test('delayUntilSlot: a full cycle stays inside its interval even with slow hosts', () => {
+  const MIN = 60000
+  const hosts = 30
+  const gap = stepDelay(hosts, MIN) // 2000
+  let now = 0
+  let slept = 0
+  for (let i = 0; i < hosts; i++) {
+    const wait = delayUntilSlot(i, gap, 0, now)
+    slept += wait
+    now += wait + 400 // each request takes 400ms
+  }
+  // Sleeping a fixed gap after each request would be 29*2000 + 30*400 = 70s, overrunning the
+  // interval and getting the next cycle dropped by the run guard.
+  assert.ok(now <= MIN, `cycle took ${now}ms, must fit in ${MIN}ms`)
+  assert.ok(slept < (hosts - 1) * gap)
 })
 
 // A sweep harness that records what happened, with each site "finishing" after a scripted delay.

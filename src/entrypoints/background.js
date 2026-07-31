@@ -2,7 +2,7 @@ import { defineBackground } from '#imports'
 import { browser } from '@/lib/browser.js'
 import { stripFramingHeaders, isFromOwnExtension, isApprovedTarget } from '@/lib/headers.js'
 import { checkHost } from '@/lib/monitor.js'
-import { stepDelay } from '@/lib/schedule.js'
+import { stepDelay, delayUntilSlot } from '@/lib/schedule.js'
 import { getHosts, getSettings, pushResult, ensureSeeded, migrateResultsToPerKey, entryOrigin, entryLabel } from '@/lib/storage.js'
 
 // Firefox MV2 persistent background page. WXT imports this file in Node at build time to read the
@@ -90,8 +90,12 @@ export default defineBackground({
         // gap, so a set of quick hosts still got hit back to back. Space them out, shortening the
         // gap if the sites wouldn't otherwise fit inside the check interval.
         const gapMs = stepDelay(hosts.length, (Number(settings.intervalMinutes) || 0) * 60000)
+        const startedAt = Date.now()
         for (const [index, host] of hosts.entries()) {
-          if (index > 0 && gapMs > 0) await new Promise(resolve => setTimeout(resolve, gapMs))
+          // Wait until this host's slot, not for a full gap after the previous request — otherwise
+          // each request's own duration is added to the spacing and the cycle overruns its interval.
+          const wait = delayUntilSlot(index, gapMs, startedAt, Date.now())
+          if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait))
           // Isolate per-host failures so one bad write/notification doesn't skip the rest this cycle.
           try {
             const result = await checkHost(host.url, { timeoutMs: 15000 })
