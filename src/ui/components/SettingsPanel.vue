@@ -181,7 +181,8 @@ async function doImport () {
       <p class="popup-load">
         Off by default — nothing is fetched in the background. Previews and metrics still update when you
         open the dashboard. Turn this on only for sites where periodic checking is appropriate. Each entry
-        is checked separately, so several pages of one host mean several requests per cycle.
+        is checked separately, so several pages of one host mean several requests per cycle — spaced a
+        couple of seconds apart, or closer together if that wouldn't fit the interval.
       </p>
     </div>
 
@@ -219,7 +220,9 @@ async function doImport () {
       </select>
       <p class="popup-load">
         Off by default — the open dashboard loads each live preview once. Turn this on to auto-reload
-        the previews while the dashboard is open (desktop layout only).
+        the previews while the dashboard is open (desktop layout only). Previews load one at a time,
+        each starting when the previous finishes (or after 2 seconds), so the sites are never all
+        requested at once.
       </p>
     </div>
 

@@ -113,6 +113,10 @@ or below it — and drag its right edge, bottom edge or bottom-right corner to s
 shows more of the page rather than magnifying it, and your arrangement scales with the window instead
 of reflowing. Settings → Reset tile layout puts everything back to automatic.
 
+Previews now load one at a time instead of all at once: each tile starts when the previous one
+finishes, or after two seconds if it is still loading, so opening or refreshing the wall no longer
+requests every site simultaneously. Background checks are spaced the same way.
+
 Also fixes the load-time chart tooltip, which was only hoverable within a pixel or two of a data
 point, and restores the shaded area under the chart line.
 ```

@@ -14,7 +14,7 @@ const props = defineProps({
   arrangeable: { type: Boolean, default: false }
 })
 
-const emit = defineEmits(['dragstart', 'resizestart'])
+const emit = defineEmits(['dragstart', 'resizestart', 'loaded'])
 
 const cardEl = ref(null)
 const previewBox = ref(null)
@@ -81,6 +81,9 @@ function loadPreview () {
 }
 async function onFrameLoad () {
   if (!frameSrc.value) return
+  // Tell the grid this tile is done, so a paced sweep can start the next one instead of waiting out
+  // its whole step. Emitted before the storage write so the next tile isn't held up by it.
+  emit('loaded', props.host.id)
   // The iframe did a real navigation, so this is full-page load time (better than the fetch proxy).
   await pushResult(props.host.id, {
     ok: true, elapsed: Math.round(performance.now() - loadStart.value),
@@ -105,9 +108,9 @@ onMounted(() => {
       }
     }, { rootMargin: '150px' })
     if (cardEl.value) io.observe(cardEl.value)
-  } else {
-    loadPreview()
   }
+  // Desktop tiles do NOT load themselves: MonitorGrid drives the first load through the same paced
+  // sweep as a refresh, so opening the dashboard doesn't fire every request at once.
 })
 onBeforeUnmount(() => { ro?.disconnect(); io?.disconnect() })
 
@@ -228,7 +231,7 @@ function onMouseLeave () {
         v-else
         class="placeholder"
       >
-        Scroll to load preview
+        {{ mode === 'mobile' ? 'Scroll to load preview' : 'Waiting to load…' }}
       </div>
       <div
         v-if="mode === 'mobile'"
