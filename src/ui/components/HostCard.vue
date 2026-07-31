@@ -8,8 +8,13 @@ const props = defineProps({
   host: { type: Object, required: true },
   result: { type: Object, default: () => ({}) },
   mode: { type: String, default: 'desktop' }, // 'desktop' | 'mobile'
-  reloadNonce: { type: Number, default: 0 }
+  reloadNonce: { type: Number, default: 0 },
+  // Drag-to-reposition and resize are desktop-only; MonitorGrid owns the tile geometry and runs
+  // the gestures, so this component only reports where a gesture started.
+  arrangeable: { type: Boolean, default: false }
 })
+
+const emit = defineEmits(['dragstart', 'resizestart'])
 
 const cardEl = ref(null)
 const previewBox = ref(null)
@@ -41,9 +46,31 @@ const lastCheckText = computed(() =>
   latest.value.timestamp ? new Date(latest.value.timestamp).toLocaleTimeString() : '—')
 
 function applyScale () {
-  const w = previewBox.value?.clientWidth || 320
+  const box = previewBox.value
+  if (!box) return
+  const w = box.clientWidth || 320
   scale.value = w / 1280
-  previewHeight.value = Math.round(800 * scale.value)
+  // On the positioned wall the card's height comes from its tile, so the flexed box height IS the
+  // preview height. Elsewhere (mobile) the card has no fixed height and the box height is whatever
+  // we last wrote inline — reading it back would pin the preview at its initial value forever, so
+  // derive 16:10 from the width instead.
+  // The scale follows WIDTH in both cases, so a taller tile reveals more page rather than
+  // magnifying the same 800px of it.
+  const aspect = Math.round(800 * scale.value)
+  previewHeight.value = props.arrangeable ? (box.clientHeight || aspect) : aspect
+}
+// The iframe is a fixed 1280px-wide viewport scaled to the tile; its height is whatever the visible
+// box covers at that scale. Resizing an iframe does not reload it.
+const frameHeight = computed(() => Math.round(previewHeight.value / (scale.value || 1)))
+
+function onHeadPointerDown (event) {
+  // Left button only, and never from the ⟳ / ↗ buttons.
+  if (!props.arrangeable || event.button !== 0 || event.target.closest('button')) return
+  emit('dragstart', { id: props.host.id, event })
+}
+function onResizePointerDown (edge, event) {
+  if (event.button !== 0) return
+  emit('resizestart', { id: props.host.id, edge, event })
 }
 function loadPreview () {
   loadStart.value = performance.now()
@@ -106,10 +133,14 @@ function onMouseLeave () {
     @mouseenter="onMouseEnter"
     @mouseleave="onMouseLeave"
   >
-    <div class="card-head">
+    <div
+      class="card-head"
+      :class="{ draggable: arrangeable }"
+      @pointerdown="onHeadPointerDown"
+    >
       <span
         class="card-host"
-        :title="host.url"
+        :title="arrangeable ? host.url + ' — drag to reorder' : host.url"
       >{{ label }}</span>
       <span class="card-actions">
         <button
@@ -182,13 +213,13 @@ function onMouseLeave () {
     <div
       ref="previewBox"
       class="preview"
-      :style="{ height: previewHeight + 'px' }"
+      :style="arrangeable ? null : { height: previewHeight + 'px' }"
     >
       <iframe
         v-if="frameSrc"
         :key="frameKey"
         :src="frameSrc"
-        :style="{ transform: 'scale(' + scale + ')' }"
+        :style="{ transform: 'scale(' + scale + ')', height: frameHeight + 'px' }"
         sandbox="allow-scripts allow-same-origin allow-forms"
         referrerpolicy="no-referrer"
         @load="onFrameLoad"
@@ -228,5 +259,23 @@ function onMouseLeave () {
     >
       {{ latest.error || 'Check failed' }}
     </div>
+
+    <template v-if="arrangeable">
+      <div
+        class="resize-handle east"
+        title="Drag to resize width"
+        @pointerdown="onResizePointerDown('east', $event)"
+      />
+      <div
+        class="resize-handle south"
+        title="Drag to resize height"
+        @pointerdown="onResizePointerDown('south', $event)"
+      />
+      <div
+        class="resize-handle corner"
+        title="Drag to resize"
+        @pointerdown="onResizePointerDown('corner', $event)"
+      />
+    </template>
   </div>
 </template>

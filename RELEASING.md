@@ -105,6 +105,18 @@ while you are reading it when other tiles refresh. The chart draws its shaded ar
 again, which had never rendered.
 ```
 
+For 0.3.0 (includes the 0.2.1 fixes above, which were never published):
+
+```text
+Arrange your wall: on desktop, drag a tile by its title bar to put it anywhere — beside a taller tile
+or below it — and drag its right edge, bottom edge or bottom-right corner to size it. A taller tile
+shows more of the page rather than magnifying it, and your arrangement scales with the window instead
+of reflowing. Settings → Reset tile layout puts everything back to automatic.
+
+Also fixes the load-time chart tooltip, which was only hoverable within a pixel or two of a data
+point, and restores the shaded area under the chart line.
+```
+
 ## About the innerHTML validator warning
 
 AMO's validator reports a non-blocking **Warning**: "Unsafe assignment to innerHTML" in

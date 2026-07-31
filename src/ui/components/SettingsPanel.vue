@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { browser } from '@/lib/browser.js'
-import { setSettings, getHosts, addHost, setAllHostsMetric } from '@/lib/storage.js'
+import { setSettings, getHosts, addHost, setAllHostsMetric, resetHostLayouts } from '@/lib/storage.js'
 import { normalizeTarget } from '@/lib/url.js'
 
 const props = defineProps({ settings: { type: Object, default: () => ({}) } })
@@ -33,6 +33,14 @@ function saveMode () { setSettings({ mode: mode.value }) }
 function saveNotifications () { setSettings({ notificationsEnabled: notificationsEnabled.value }) }
 function saveDefaults () { setSettings({ metricDefaults: { cert: defCert.value, load: defLoad.value } }) }
 function applyAll (key, value) { setAllHostsMetric(key, value) }
+
+// Drops the whole arrangement: position AND size, since a tile's layout is one { x, y, w, h }.
+const layoutReset = ref(false)
+async function resetLayout () {
+  await resetHostLayouts()
+  layoutReset.value = true
+  setTimeout(() => { layoutReset.value = false }, 2000)
+}
 
 // The dashboard is a normal extension page (no new-tab override). Expose its URL so the user can
 // set it as their Firefox homepage / new-windows page if they want.
@@ -314,8 +322,22 @@ async function doImport () {
         @change="saveCardWidth"
       >
       <p class="popup-load">
-        Larger → fewer, bigger tiles; the column count auto-fits your window.
+        Sets the starting width of new tiles. On desktop you can then drag a tile by its title bar to
+        put it anywhere on the wall — including below a taller tile — and drag its right or bottom edge
+        (or the bottom-right corner) to size it. A taller tile shows more of the page.
       </p>
+      <div class="field">
+        <button
+          class="btn btn-sm"
+          @click="resetLayout"
+        >
+          Reset tile layout
+        </button>
+        <span
+          v-if="layoutReset"
+          class="popup-load"
+        >Tiles are back to automatic position and size</span>
+      </div>
     </div>
 
     <div class="card setting">

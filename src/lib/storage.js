@@ -2,9 +2,11 @@ import { browser } from './browser.js'
 import { normalizeTarget } from './url.js'
 
 // storage.local schema:
-//   hosts:      [{ id, url, hostname, origin, label, addedAt, metrics:{cert,load} }]
+//   hosts:      [{ id, url, hostname, origin, label, addedAt, metrics:{cert,load}, layout:{x,y,w,h} }]
 //               id = the normalized URL: the bare origin for a whole-site entry, origin + path for a
 //               single monitored page. Several pages of one host are independent entries.
+//               layout = { x, y, w, h } desktop tile position and size in grid units (see
+//               lib/layout.js); absent means "place it automatically".
 //   result:<id>: { timestamp[], elapsed[], certExpiresInDays[], ok, error, source, lastTimestamp }
 //               one key per monitored entry — so two pages of the same host keep separate histories,
 //               and concurrent writers (parallel preview iframes) don't clobber each other. The old
@@ -94,6 +96,31 @@ export async function removeHost (id) {
 export async function setHostMetric (id, key, value) {
   const hosts = await getHosts()
   const next = hosts.map(h => (h.id === id ? { ...h, metrics: { ...h.metrics, [key]: value } } : h))
+  await setHosts(next)
+  return next
+}
+
+// Persist the whole wall in one write: `byId` is { [host id]: { x, y, w, h } } in grid units.
+// A drag or resize moves the tiles it displaces too, so they are always saved together — and one
+// write means one storage event, not one per tile.
+export async function setHostLayouts (byId) {
+  const hosts = await getHosts()
+  const next = hosts.map((h) => {
+    const layout = byId?.[h.id]
+    return layout ? { ...h, layout: { x: layout.x, y: layout.y, w: layout.w, h: layout.h } } : h
+  })
+  await setHosts(next)
+  return next
+}
+
+// Drop every tile back to automatic placement and sizing.
+export async function resetHostLayouts () {
+  const hosts = await getHosts()
+  const next = hosts.map(h => {
+    const copy = { ...h }
+    delete copy.layout
+    return copy
+  })
   await setHosts(next)
   return next
 }
