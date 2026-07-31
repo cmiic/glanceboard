@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { browser } from '@/lib/browser.js'
 import HostCard from './HostCard.vue'
 import { setHostLayouts } from '@/lib/storage.js'
+import { stepDelay, pacedSweep } from '@/lib/schedule.js'
 import {
   domOrder, normalizeLayout, moveTile, resizeTile, wallRows,
   columnWidth, toColumns, toRows, ROW_HEIGHT, MIN_COL_SPAN, MIN_ROW_SPAN
@@ -16,7 +17,6 @@ const props = defineProps({
 
 const wallEl = ref(null)
 const isMobile = ref(false)
-const reloadNonce = ref(0)
 const mode = computed(() => (isMobile.value ? 'mobile' : 'desktop'))
 // Arranging is desktop-only: on Android tiles are lazy, stacked, and a tap opens the site.
 const arrangeable = computed(() => !isMobile.value)
@@ -165,16 +165,101 @@ function syncWall () {
   wallObserver?.observe(el)
 }
 
-// ---- preview refresh (unchanged behaviour) ---------------------------------------------------
+// ---- paced preview loading -------------------------------------------------------------------
+// Tiles are loaded one at a time rather than all on the same tick. Each tile starts when the
+// previous one reports it finished, or after `stepDelay` if it is still going — so a wall of quick
+// sites comes round fast while a slow one can never hold the sweep up for long. This covers the
+// FIRST load too, not just the periodic refresh: preview refresh is off by default, so opening the
+// dashboard was the burst most people actually saw.
 const previewMs = computed(() => (Number(props.settings?.previewIntervalMinutes) || 0) * 60000)
+const reloadNonces = ref({})
 let timer = null
+let sweepId = 0 // bumped to abandon a sweep in flight
+let sweeping = false
+let step = null // the tile the current sweep is waiting on
+
+function tilesInReadingOrder () {
+  return wall.value.slice().sort((a, b) => (a.y - b.y) || (a.x - b.x)).map(t => t.id)
+}
+
+// Resolves when this tile reports it loaded, or when its step elapses — whichever comes first.
+function waitForTile (id, ms) {
+  return new Promise((resolve) => {
+    const finish = () => { clearTimeout(timeout); step = null; resolve() }
+    const timeout = setTimeout(finish, ms)
+    step = { id, finish }
+  })
+}
+
+function onTileLoaded (id) {
+  if (step?.id === id) step.finish()
+}
+
+// One sweep at a time. `step` is shared, so a second sweep starting on top of a running one takes
+// over the slot the first is waiting on: both would have a tile in flight, which is the burst this
+// pacing exists to prevent. Callers that mean to REPLACE a sweep call cancelSweep() first, which
+// clears the flag — so this guard only ever blocks an accidental overlap (a sweep started while the
+// tab was hidden, still running when the tab came back and asked for a refresh).
+async function sweep (ids) {
+  if (!ids?.length || isMobile.value || sweeping) return
+  const run = ++sweepId
+  sweeping = true
+  try {
+    await pacedSweep(ids, {
+      stepMs: stepDelay(ids.length, previewMs.value),
+      start: (id) => {
+        // A ref holding an object is a deep reactive proxy, so assigning a key — including a new
+        // one — is reactive without rebuilding the whole map on every tile.
+        reloadNonces.value[id] = (reloadNonces.value[id] || 0) + 1
+      },
+      waitForDone: waitForTile,
+      // Superseded by a newer sweep, or no longer a desktop wall.
+      cancelled: () => run !== sweepId || isMobile.value
+    })
+  } finally {
+    if (run === sweepId) {
+      sweeping = false
+      sweepNewTiles() // pick up anything added while this sweep was running
+    }
+  }
+}
+
+function cancelSweep () {
+  sweepId++
+  step?.finish()
+  // The abandoned run's `finally` sees a bumped sweepId and skips its own cleanup, so clear the flag
+  // here — otherwise `sweeping` stays true for good and blocks every later sweep.
+  sweeping = false
+}
+
+// A nonce means "this card has been told to load", which only holds while the card is the same
+// instance. Drop the entry for anything not currently mounted, so a site removed and added again is
+// swept afresh rather than looking like it had already loaded.
+function pruneNonces () {
+  const live = new Set(tiles.value.map(t => t.id))
+  const kept = {}
+  for (const [id, nonce] of Object.entries(reloadNonces.value)) if (live.has(id)) kept[id] = nonce
+  if (Object.keys(kept).length !== Object.keys(reloadNonces.value).length) reloadNonces.value = kept
+}
+
+// Load whatever has never been loaded — the whole wall on open, or just a newly added site.
+// Several triggers land on the first render (mode resolution, the tile list arriving), so this must
+// not start a second sweep on top of a running one: that put two tiles in flight at once, and
+// abandoned the first sweep half done.
+function sweepNewTiles () {
+  if (isMobile.value || sweeping) return
+  const fresh = tilesInReadingOrder().filter(id => !reloadNonces.value[id])
+  if (fresh.length) sweep(fresh)
+}
 
 function startTimer () {
   if (timer) { clearInterval(timer); timer = null }
   // Desktop "wall": auto-refresh the live previews on the configured cadence — but only while this
   // tab is visible, and only when the user has turned preview refresh on (>= 1 min).
   if (!isMobile.value && !document.hidden && previewMs.value >= 60000) {
-    timer = setInterval(() => { reloadNonce.value++ }, previewMs.value)
+    // A sweep always fits inside its interval (stepDelay guarantees it), so a refresh never
+    // lands on one still running — but skip rather than restart if it somehow does.
+    timer = setInterval(() => { if (!sweeping) sweep(tilesInReadingOrder()) }, previewMs.value)
   }
 }
 
@@ -184,9 +269,17 @@ function startTimer () {
 function onVisibility () {
   if (document.hidden) {
     if (timer) { clearInterval(timer); timer = null }
-  } else if (!isMobile.value && previewMs.value >= 60000) {
-    reloadNonce.value++
+    cancelSweep()
+    return
+  }
+  if (isMobile.value) return
+  if (previewMs.value >= 60000) {
+    sweep(tilesInReadingOrder())
     startTimer()
+  } else {
+    // Refresh is off, but hiding the tab may have cancelled the initial sweep part-way. Finish it,
+    // or those tiles sit on "Waiting to load…" for the life of the page.
+    sweepNewTiles()
   }
 }
 
@@ -204,7 +297,7 @@ async function resolveMode () {
     }
   }
   startTimer()
-  nextTick(syncWall)
+  nextTick(() => { syncWall(); sweepNewTiles() })
 }
 
 onMounted(() => {
@@ -216,9 +309,21 @@ onMounted(() => {
   }
   nextTick(syncWall)
 })
-// The wall element lives behind v-if on the host list, which is empty on the first mount.
-watch(() => tiles.value.length, () => nextTick(syncWall))
-watch(mode, () => nextTick(syncWall))
+// The wall element lives behind v-if on the host list, which is empty on the first mount. A newly
+// added site joins the paced sweep rather than loading the instant it appears.
+watch(() => tiles.value.map(t => t.id).join('|'), () => nextTick(() => {
+  pruneNonces()
+  syncWall()
+  sweepNewTiles()
+}))
+// The wall is keyed by mode, so switching layout remounts every HostCard and it loses its iframe.
+// Their surviving nonces would read as "already loaded" — and a remounted card never sees its
+// initial prop change, so nothing would tell it to load. Start the new cards from nothing.
+watch(mode, () => {
+  cancelSweep()
+  reloadNonces.value = {}
+  nextTick(() => { syncWall(); sweepNewTiles() })
+})
 watch(() => props.settings?.previewIntervalMinutes, startTimer)
 watch(() => props.settings?.mode, resolveMode)
 
@@ -228,6 +333,7 @@ onBeforeUnmount(() => {
   removeGestureListeners(onDragMove, onDragEnd)
   removeGestureListeners(onResizeMove, onResizeEnd)
   wallObserver?.disconnect()
+  cancelSweep()
 })
 </script>
 
@@ -258,9 +364,10 @@ onBeforeUnmount(() => {
         :result="results[host.id] || {}"
         :mode="mode"
         :arrangeable="arrangeable"
-        :reload-nonce="reloadNonce"
+        :reload-nonce="reloadNonces[host.id] || 0"
         @dragstart="onDragStart"
         @resizestart="onResizeStart"
+        @loaded="onTileLoaded"
       />
     </div>
   </div>

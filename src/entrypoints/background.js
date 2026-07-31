@@ -2,6 +2,7 @@ import { defineBackground } from '#imports'
 import { browser } from '@/lib/browser.js'
 import { stripFramingHeaders, isFromOwnExtension, isApprovedTarget } from '@/lib/headers.js'
 import { checkHost } from '@/lib/monitor.js'
+import { stepDelay, delayUntilSlot } from '@/lib/schedule.js'
 import { getHosts, getSettings, pushResult, ensureSeeded, migrateResultsToPerKey, entryOrigin, entryLabel } from '@/lib/storage.js'
 
 // Firefox MV2 persistent background page. WXT imports this file in Node at build time to read the
@@ -85,7 +86,18 @@ export default defineBackground({
       running = true
       try {
         const [hosts, settings] = await Promise.all([getHosts(), getSettings()])
-        for (const host of hosts) {
+        // These checks were already sequential — one request in flight at a time — but ran with no
+        // gap, so a set of quick hosts still got hit back to back. Space them out, shortening the
+        // gap when the gaps alone wouldn't fit inside the check interval. Only the gaps are
+        // budgeted: request time is not, so a cycle of slow or timing-out hosts can still overrun
+        // its interval, and the `running` guard above drops the tick that lands during it.
+        const gapMs = stepDelay(hosts.length, (Number(settings.intervalMinutes) || 0) * 60000)
+        const startedAt = Date.now()
+        for (const [index, host] of hosts.entries()) {
+          // Wait until this host's slot, not for a full gap after the previous request — otherwise
+          // each request's own duration is added to the spacing and the cycle overruns its interval.
+          const wait = delayUntilSlot(index, gapMs, startedAt, Date.now())
+          if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait))
           // Isolate per-host failures so one bad write/notification doesn't skip the rest this cycle.
           try {
             const result = await checkHost(host.url, { timeoutMs: 15000 })

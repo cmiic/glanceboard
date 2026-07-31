@@ -105,13 +105,18 @@ while you are reading it when other tiles refresh. The chart draws its shaded ar
 again, which had never rendered.
 ```
 
-For 0.3.0 (includes the 0.2.1 fixes above, which were never published):
+For 0.3.1 — the first release since 0.2.0, so it carries everything from 0.2.1 and 0.3.0 too
+(neither was published):
 
 ```text
 Arrange your wall: on desktop, drag a tile by its title bar to put it anywhere — beside a taller tile
 or below it — and drag its right edge, bottom edge or bottom-right corner to size it. A taller tile
 shows more of the page rather than magnifying it, and your arrangement scales with the window instead
 of reflowing. Settings → Reset tile layout puts everything back to automatic.
+
+Previews now load one at a time instead of all at once: each tile starts when the previous one
+finishes, or after up to two seconds if it is still loading, so opening or refreshing the wall no
+longer requests every site simultaneously. Background checks are spaced the same way.
 
 Also fixes the load-time chart tooltip, which was only hoverable within a pixel or two of a data
 point, and restores the shaded area under the chart line.
