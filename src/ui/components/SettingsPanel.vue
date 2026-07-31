@@ -322,21 +322,21 @@ async function doImport () {
         @change="saveCardWidth"
       >
       <p class="popup-load">
-        Larger → fewer, bigger tiles; the column count auto-fits your window. On desktop you can also
-        drag a tile by its title bar to reorder it, and drag its right or bottom edge (or the bottom-right
-        corner) to size it individually — a taller tile shows more of the page.
+        Sets the starting width of new tiles. On desktop you can then drag a tile by its title bar to
+        put it anywhere on the wall — including below a taller tile — and drag its right or bottom edge
+        (or the bottom-right corner) to size it. A taller tile shows more of the page.
       </p>
       <div class="field">
         <button
           class="btn btn-sm"
           @click="resetSizes"
         >
-          Reset tile sizes
+          Reset tile layout
         </button>
         <span
           v-if="sizesReset"
           class="popup-load"
-        >Tiles are back to automatic sizing</span>
+        >Tiles are back to automatic placement</span>
       </div>
     </div>
 

@@ -1,110 +1,125 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  clampTileWidth, clampPreviewHeight, tileLayout, dropIndex, moveItem, domOrder,
-  trackCount, colSpanForWidth, rowSpanForHeight, autoColSpan, estimateCardHeight,
-  MIN_TILE_WIDTH, MAX_TILE_WIDTH, MIN_PREVIEW_HEIGHT, GRID_UNIT
+  collides, compact, normalizeLayout, moveTile, resizeTile, wallRows,
+  defaultColSpan, defaultRowSpan, columnWidth, toColumns, toRows, domOrder,
+  COLUMNS, ROW_HEIGHT, MIN_COL_SPAN, MIN_ROW_SPAN
 } from '../src/lib/layout.js'
 
-const rect = (left, top, right, bottom) => ({ left, top, right, bottom })
+const tile = (id, x, y, w, h) => ({ id, x, y, w, h })
+const at = (items, id) => items.find(t => t.id === id)
+const hosts = (...layouts) => layouts.map((layout, i) => ({ id: 'h' + i, layout }))
 
-test('clamp: sizes are bounded and rounded; null stays automatic', () => {
-  assert.equal(clampTileWidth(400.4), 400)
-  assert.equal(clampTileWidth(10), MIN_TILE_WIDTH)
-  assert.equal(clampTileWidth(99999), MAX_TILE_WIDTH)
-  assert.equal(clampTileWidth(null), null)
-  assert.equal(clampPreviewHeight(1), MIN_PREVIEW_HEIGHT)
-  assert.equal(clampPreviewHeight(undefined), null)
-  assert.equal(clampTileWidth('nonsense'), null) // never emit NaN into a style
+test('collides: overlap only, edges touching is not a collision', () => {
+  assert.equal(collides(tile('a', 0, 0, 4, 4), tile('b', 4, 0, 4, 4)), false) // side by side
+  assert.equal(collides(tile('a', 0, 0, 4, 4), tile('b', 0, 4, 4, 4)), false) // stacked
+  assert.equal(collides(tile('a', 0, 0, 4, 4), tile('b', 3, 3, 4, 4)), true)
+  assert.equal(collides(tile('a', 0, 0, 4, 4), tile('a', 0, 0, 4, 4)), false) // itself
 })
 
-test('tileLayout: reads and normalizes a stored entry, tolerating none', () => {
-  assert.deepEqual(tileLayout({ layout: { w: 500, h: 300 } }), { w: 500, h: 300 })
-  assert.deepEqual(tileLayout({ layout: { w: 5 } }), { w: MIN_TILE_WIDTH, h: null })
-  assert.deepEqual(tileLayout({}), { w: null, h: null })
-  assert.deepEqual(tileLayout(undefined), { w: null, h: null })
+test('compact: tiles float up, but never through another tile', () => {
+  const out = compact([tile('a', 0, 0, 8, 40), tile('b', 0, 60, 8, 20), tile('c', 8, 80, 8, 20)])
+  assert.equal(at(out, 'a').y, 0)
+  assert.equal(at(out, 'b').y, 40) // stops under a, does not pass through it
+  assert.equal(at(out, 'c').y, 0) // free column, floats to the top
 })
 
-test('dropIndex: single row, by horizontal midpoint', () => {
-  const rects = [rect(0, 0, 100, 100), rect(110, 0, 210, 100), rect(220, 0, 320, 100)]
-  assert.equal(dropIndex(rects, { x: 10, y: 50 }), 0) // before the first
-  assert.equal(dropIndex(rects, { x: 60, y: 50 }), 1) // past the first midpoint
-  assert.equal(dropIndex(rects, { x: 170, y: 50 }), 2)
-  assert.equal(dropIndex(rects, { x: 300, y: 50 }), 3) // after the last
+test('normalizeLayout: unpositioned tiles flow into the first free slot', () => {
+  const out = normalizeLayout(hosts(undefined, undefined, undefined), 320)
+  const w = defaultColSpan(320)
+  assert.equal(w, 8) // 320px of a 1920px nominal wall = 8 of 48 columns
+  assert.deepEqual(out.map(t => t.x), [0, 8, 16])
+  assert.ok(out.every(t => t.y === 0 && t.h === defaultRowSpan(w)))
 })
 
-test('dropIndex: wrapped rows count every tile on an earlier row', () => {
-  const rects = [
-    rect(0, 0, 100, 100), rect(110, 0, 210, 100), // row 1
-    rect(0, 110, 100, 210), rect(110, 110, 210, 210) // row 2
-  ]
-  assert.equal(dropIndex(rects, { x: 10, y: 150 }), 2) // start of row 2
-  assert.equal(dropIndex(rects, { x: 60, y: 150 }), 3)
-  assert.equal(dropIndex(rects, { x: 200, y: 150 }), 4) // end of row 2
-  assert.equal(dropIndex(rects, { x: 10, y: 5 }), 0) // above everything
+test('normalizeLayout: stored coordinates are honoured and clamped into the wall', () => {
+  const out = normalizeLayout(hosts({ x: 40, y: 3, w: 16, h: 40 }), 320)
+  assert.equal(at(out, 'h0').w, 16)
+  assert.equal(at(out, 'h0').x, COLUMNS - 16) // 40 + 16 would overflow, so it is pulled back
+  assert.equal(at(out, 'h0').y, 0) // compaction floats it up
 })
 
-test('dropIndex: a short tile beside a tall one is not treated as already passed', () => {
-  // Free pixel sizing means one row mixes heights. At y=250 the pointer is still in row 1, level
-  // with the tall tile — the short tile sits beside it, not on an earlier row.
-  const rects = [rect(0, 0, 100, 300), rect(110, 0, 210, 100)]
-  assert.equal(dropIndex(rects, { x: 60, y: 250 }), 1) // past the tall tile's midpoint only
-  assert.equal(dropIndex(rects, { x: 10, y: 250 }), 0) // left of both midpoints -> before the row
-  assert.equal(dropIndex(rects, { x: 200, y: 250 }), 2) // past both midpoints -> end of the row
-  assert.equal(dropIndex(rects, { x: 10, y: 400 }), 2) // genuinely below the row
+test('normalizeLayout: a pre-coordinates px layout counts as unpositioned, not as x/y', () => {
+  // The earlier shape was { w: 619, h: 486 } in PIXELS with no x/y — reading those as columns and
+  // rows would put a single tile 619 columns wide.
+  const out = normalizeLayout(hosts({ w: 619, h: 486 }), 320)
+  assert.equal(at(out, 'h0').w, defaultColSpan(320))
+  assert.equal(at(out, 'h0').x, 0)
 })
 
-test('moveItem: insertion index is measured against the original list', () => {
-  const l = ['a', 'b', 'c', 'd']
-  assert.deepEqual(moveItem(l, 0, 2), ['b', 'a', 'c', 'd']) // a between b and c
-  assert.deepEqual(moveItem(l, 3, 1), ['a', 'd', 'b', 'c'])
-  assert.deepEqual(moveItem(l, 0, 4), ['b', 'c', 'd', 'a']) // to the end
-  assert.deepEqual(moveItem(l, 2, 2), ['a', 'b', 'c', 'd']) // dropped on itself
-  assert.deepEqual(moveItem(l, 2, 3), ['a', 'b', 'c', 'd']) // just past itself
+test('normalizeLayout: mixed positioned and unpositioned tiles do not overlap', () => {
+  const out = normalizeLayout(hosts({ x: 0, y: 0, w: 16, h: 40 }, undefined, undefined), 320)
+  for (const a of out) for (const b of out) assert.equal(collides(a, b), false)
 })
 
-test('moveItem: never mutates the input and survives a bad index', () => {
-  const l = ['a', 'b']
-  assert.deepEqual(moveItem(l, 5, 0), ['a', 'b'])
-  assert.deepEqual(moveItem(l, -1, 0), ['a', 'b'])
-  assert.deepEqual(l, ['a', 'b'])
-  assert.deepEqual(moveItem(undefined, 0, 0), [])
+test('moveTile: a tile can be placed BELOW a taller one and stays there', () => {
+  // The case an order-based flow could not express at all.
+  const wall = normalizeLayout(hosts(
+    { x: 0, y: 0, w: 8, h: 80 }, // tall tile
+    { x: 8, y: 0, w: 8, h: 40 },
+    { x: 16, y: 0, w: 8, h: 40 }
+  ), 320)
+  const out = moveTile(wall, 'h2', 0, 80) // drop underneath the tall tile
+  assert.equal(at(out, 'h2').x, 0)
+  assert.equal(at(out, 'h2').y, 80) // compaction cannot lift it past the tall tile
+  assert.equal(at(out, 'h0').y, 0)
 })
 
-test('autoColSpan: an unsized tile is a fixed share of the row, not a stretchy one', () => {
-  // 1914px of tracks at a 320px base: five tiles per row, each 38 tracks = 380px of footprint.
-  const span = autoColSpan(1914, 320, 14)
-  assert.equal(span, 38)
-  assert.equal(span * GRID_UNIT - 14, 366) // inner width
-  // Five of them fill the row; a sixth wraps and is exactly as wide as the five above it — the
-  // whole point, since a lone tile on the last row used to stretch across the entire wall.
-  assert.ok(span * 5 <= trackCount(1914))
-  assert.ok(span * 6 > trackCount(1914))
+test('moveTile: dropping onto an occupied cell pushes the occupant down', () => {
+  const wall = [tile('a', 0, 0, 8, 40), tile('b', 8, 0, 8, 40)]
+  const out = moveTile(wall, 'a', 8, 0)
+  assert.equal(at(out, 'a').x, 8)
+  assert.equal(at(out, 'a').y, 0)
+  assert.equal(at(out, 'b').y, 40) // shoved below, then compacted back up against a
 })
 
-test('autoColSpan: adapts to narrow windows and never collapses below one tile', () => {
-  assert.equal(autoColSpan(700, 320, 14), Math.floor(trackCount(700) / 2)) // two per row
-  assert.equal(autoColSpan(300, 320, 14), trackCount(300)) // one per row, full width
-  assert.ok(autoColSpan(0, 320, 14) >= 1)
+test('moveTile: the same drop always yields the same wall (drags must not wander)', () => {
+  const wall = normalizeLayout(hosts(undefined, undefined, undefined, undefined), 320)
+  assert.deepEqual(moveTile(wall, 'h3', 0, 0), moveTile(wall, 'h3', 0, 0))
+  // Feeding a previous frame's result back in gives a DIFFERENT wall than starting from the
+  // original — which is why the drag always re-derives from the layout snapshotted at drag start,
+  // rather than from the frame before. Applying moves cumulatively is what made tiles wander.
+  const cumulative = moveTile(moveTile(wall, 'h3', 16, 0), 'h3', 0, 0)
+  const fromOriginal = moveTile(wall, 'h3', 0, 0)
+  assert.notDeepEqual(cumulative, fromOriginal)
 })
 
-test('span helpers: width rounds to the nearest track, height always covers the content', () => {
-  assert.equal(colSpanForWidth(366, 14), 38) // 380 / 10
-  assert.equal(colSpanForWidth(619, 14), 63) // nearest track
-  assert.equal(rowSpanForHeight(486, 14), 50) // ceil(500 / 10)
-  assert.equal(rowSpanForHeight(481, 14), 50) // rounds UP: never clip the card
-  assert.equal(rowSpanForHeight(0, 0), 1)
-  assert.equal(colSpanForWidth(undefined, 14), 1) // a missing width degenerates to the min span
+test('moveTile: x is clamped so a tile never hangs off the right edge', () => {
+  const out = moveTile([tile('a', 0, 0, 8, 40)], 'a', COLUMNS - 2, 0)
+  assert.equal(at(out, 'a').x, COLUMNS - 8)
 })
 
-test('estimateCardHeight: pre-measurement guess follows the 16:10 preview', () => {
-  assert.equal(estimateCardHeight(320), 200 + 200)
-  assert.equal(estimateCardHeight(320, 500), 700) // an explicit preview height wins
+test('resizeTile: growing pushes neighbours down; minimums are enforced', () => {
+  const wall = [tile('a', 0, 0, 8, 40), tile('b', 0, 40, 8, 40)]
+  const grown = resizeTile(wall, 'a', 8, 60)
+  assert.equal(at(grown, 'a').h, 60)
+  assert.equal(at(grown, 'b').y, 60)
+  const tiny = resizeTile(wall, 'a', 1, 1)
+  assert.equal(at(tiny, 'a').w, MIN_COL_SPAN)
+  assert.equal(at(tiny, 'a').h, MIN_ROW_SPAN)
 })
 
-test('domOrder: stable regardless of the user order, so tiles never reparent', () => {
+test('resizeTile: width is capped by the space left to the right edge', () => {
+  const out = resizeTile([tile('a', COLUMNS - 8, 0, 8, 40)], 'a', 40, 40)
+  assert.equal(at(out, 'a').w, 8)
+})
+
+test('wallRows: the wall is as tall as its lowest tile', () => {
+  assert.equal(wallRows([tile('a', 0, 0, 8, 40), tile('b', 8, 30, 8, 25)]), 55)
+  assert.equal(wallRows([]), 0)
+})
+
+test('pixel mapping: columns scale with the window, rows do not', () => {
+  assert.equal(columnWidth(1920), 40)
+  assert.equal(columnWidth(960), 20)
+  assert.equal(toColumns(400, 1920), 10) // same tile, different windows -> same column span
+  assert.equal(toColumns(200, 960), 10)
+  assert.equal(toRows(400), 400 / ROW_HEIGHT)
+  assert.equal(toColumns(100, 0), 0) // no divide-by-zero before the first measurement
+})
+
+test('domOrder: stable regardless of the arrangement, so tiles never reparent', () => {
   const a = { id: 'https://a.com' }, b = { id: 'https://b.com' }, c = { id: 'https://c.com' }
   assert.deepEqual(domOrder([c, a, b]).map(h => h.id), domOrder([a, b, c]).map(h => h.id))
-  assert.deepEqual(domOrder([c, a, b]).map(h => h.id), ['https://a.com', 'https://b.com', 'https://c.com'])
   assert.deepEqual(domOrder(undefined), [])
 })

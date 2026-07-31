@@ -42,28 +42,18 @@ a { color: var(--primary); }
 .field { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .error-text { color: var(--danger); font-size: 13px; }
 
-/* A grid of fine 10px tracks: tiles span as many as they need, so widths stay effectively free while
-   `dense` still packs two short tiles beside one tall tile — a wrapping flex line cannot, because a
-   flex line IS a row, and a tall item leaves dead space beside its shorter neighbours.
-   The gap is carried by each card's margin, not by grid `gap`: at this track size a real gap would
-   be inserted between every 10px track and swamp the content.
-   Visual position comes from CSS `order` — MonitorGrid never reorders the DOM, which would reload
-   every moved tile's preview iframe. */
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, 10px);
-  grid-auto-rows: 10px;
-  grid-auto-flow: row dense;
-  gap: 0;
-  align-items: start;
-  margin: calc(var(--gap) / -2);
-}
-.grid > .card { margin: calc(var(--gap) / 2); align-self: start; }
+/* Mobile: a plain stack. Desktop: a positioned wall — each tile is absolutely placed from its
+   stored { x, y, w, h }, because a flow (grid or flex) cannot express "put this one BELOW that
+   one"; the slot after a tall tile is always beside it. MonitorGrid never reorders the DOM, which
+   would reload every moved tile's preview iframe. */
+.wall { display: grid; grid-template-columns: 1fr; gap: var(--gap); }
+.wall.positioned { display: block; position: relative; }
 
 /* While dragging or resizing, the pointer crosses the live previews; an iframe would swallow the
    pointer events and strand the gesture. */
-.grid.arranging { user-select: none; }
-.grid.arranging .preview iframe { pointer-events: none; }
+.wall.arranging { user-select: none; }
+.wall.arranging .preview iframe { pointer-events: none; }
+.wall.positioned .card.active { z-index: 5; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
 
 .card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
@@ -71,10 +61,10 @@ a { color: var(--primary); }
   position: relative; min-width: 0;
 }
 .card.error { border-color: var(--danger); }
-.card.dragging { opacity: .65; outline: 2px solid var(--primary); outline-offset: -2px; }
+.card.active { outline: 2px solid var(--primary); outline-offset: -2px; }
 .card-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .card-head.draggable { cursor: grab; }
-.card.dragging .card-head.draggable { cursor: grabbing; }
+.card.active .card-head.draggable { cursor: grabbing; }
 
 /* Resize grips. Invisible until the tile is hovered so the wall stays calm at rest. */
 .resize-handle { position: absolute; z-index: 2; opacity: 0; }
@@ -85,7 +75,7 @@ a { color: var(--primary); }
   background: linear-gradient(135deg, transparent 50%, var(--text-dim) 50%, var(--text-dim) 100%);
   border-bottom-right-radius: var(--radius);
 }
-.card:hover .resize-handle, .grid.arranging .resize-handle { opacity: 1; }
+.card:hover .resize-handle, .wall.arranging .resize-handle { opacity: 1; }
 .resize-handle.east:hover, .resize-handle.south:hover { background: var(--primary); opacity: 1; }
 .card-host { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .card-actions { display: flex; gap: 4px; }
@@ -99,7 +89,9 @@ a { color: var(--primary); }
 .metric .value { font-size: 20px; font-weight: 700; }
 .metric .unit { font-size: 11px; color: var(--text-dim); }
 
-.preview { position: relative; width: 100%; background: var(--surface-2); overflow: hidden; }
+/* On the positioned wall the card's height is set by its tile, so the preview takes whatever is
+   left after the header, metrics and chart — a taller tile therefore shows more of the page. */
+.preview { position: relative; width: 100%; background: var(--surface-2); overflow: hidden; flex: 1 1 auto; min-height: 0; }
 .preview iframe {
   position: absolute; top: 0; left: 0; width: 1280px; height: 800px; border: 0;
   transform-origin: 0 0; background: #fff;

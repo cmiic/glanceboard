@@ -1,115 +1,146 @@
-// Desktop tile layout: free pixel sizing plus drag-to-reorder.
+// Desktop tile layout: a positioned wall, not a flow.
 //
-// Pure geometry and ordering helpers, kept out of the components so they carry unit coverage
-// (there is no component test harness).
+// Tiles carry real coordinates — { x, y, w, h } in grid units — so a tile can be put anywhere,
+// including below a taller neighbour. An order-based flow cannot express that: with dense packing
+// the slot after a tall tile is always BESIDE it, and without dense packing the space beside a tall
+// tile is dead. Coordinates give both.
 //
-// IMPORTANT: the visual order is applied through the CSS `order` property, never by reordering the
-// DOM. Every tile holds a live <iframe>, and reparenting an iframe reloads it — a drag that moved
-// DOM nodes would reload each tile it passed over. MonitorGrid therefore renders tiles in a stable
-// order and only changes `order`, which flex/grid honour without touching the tree.
+// x/w are columns of a FIXED COLUMNS-wide grid whose column width scales with the window, so a
+// stored arrangement stays valid at any size and simply scales. y/h are ROW_HEIGHT px rows, which
+// do not scale — tile height is absolute.
+//
+// The DOM is never reordered (tiles are absolutely positioned and rendered in a stable order):
+// every tile holds a live <iframe>, and reparenting an iframe reloads it.
 
-// The wall is a grid of fine tracks: tiles span however many they need, so widths stay effectively
-// free (10px granularity) while the grid still packs. `grid-auto-flow: dense` is what lets two short
-// tiles sit beside one tall tile — a flex line cannot, because a flex line IS a row.
-// The grid runs with gap: 0 and each card carries the gap as margin: with tracks this fine, a real
-// grid gap would be applied between every 10px track and swamp the content.
-export const GRID_UNIT = 10
-export const CARD_CHROME_HEIGHT = 200 // header + metrics + chart, for a pre-measurement estimate
+export const COLUMNS = 48
+export const ROW_HEIGHT = 10 // px per row unit
+export const MIN_COL_SPAN = 4
+export const MIN_ROW_SPAN = 12
+export const CARD_CHROME_HEIGHT = 200 // header + metrics + chart
+const NOMINAL_WALL_WIDTH = 1920 // reference width for turning the px "card size" setting into columns
 
-export const MIN_TILE_WIDTH = 240
-export const MAX_TILE_WIDTH = 1920
-export const MIN_PREVIEW_HEIGHT = 100
-export const MAX_PREVIEW_HEIGHT = 1600
-
-function clamp (value, min, max) {
+function clampInt (value, min, max) {
   const n = Math.round(Number(value))
-  if (!Number.isFinite(n)) return null
+  if (!Number.isFinite(n)) return min
   return Math.min(max, Math.max(min, n))
 }
 
-export function clampTileWidth (w) {
-  return w == null ? null : clamp(w, MIN_TILE_WIDTH, MAX_TILE_WIDTH)
+export function defaultColSpan (cardMinWidth) {
+  return clampInt((COLUMNS * (Number(cardMinWidth) || 320)) / NOMINAL_WALL_WIDTH, MIN_COL_SPAN, COLUMNS)
 }
 
-export function clampPreviewHeight (h) {
-  return h == null ? null : clamp(h, MIN_PREVIEW_HEIGHT, MAX_PREVIEW_HEIGHT)
+// Enough rows for the card chrome plus a 16:10 preview at that width.
+export function defaultRowSpan (colSpan) {
+  const widthPx = (colSpan / COLUMNS) * NOMINAL_WALL_WIDTH
+  return Math.max(MIN_ROW_SPAN, Math.ceil((CARD_CHROME_HEIGHT + (widthPx * 800) / 1280) / ROW_HEIGHT))
 }
 
-// A stored entry's tile layout, normalized. null on either axis = size that axis automatically
-// (width fills the row like an unsized tile; height follows the preview's 16:10 scale).
-export function tileLayout (entry) {
-  const l = entry?.layout || {}
-  return { w: clampTileWidth(l.w ?? null), h: clampPreviewHeight(l.h ?? null) }
+export function collides (a, b) {
+  return a.id !== b.id &&
+    a.x < b.x + b.w && a.x + a.w > b.x &&
+    a.y < b.y + b.h && a.y + a.h > b.y
 }
 
-// Where a tile dropped at `point` should be inserted, given the on-screen rects of every tile in
-// current visual order. Reading order: a tile is "passed" once the pointer is on a later row, or on
-// the same row and past the tile's horizontal midpoint.
-//
-// Rows are grouped by their shared top edge rather than judged per tile: with free pixel sizing a
-// row mixes tall and short tiles, and testing each tile's own bottom edge would treat a short tile
-// as already passed whenever the pointer is level with a taller neighbour beside it.
-export function dropIndex (rects, point) {
-  const rows = new Map()
-  for (const r of rects) {
-    const key = Math.round(r.top)
-    const row = rows.get(key)
-    if (row) row.bottom = Math.max(row.bottom, r.bottom)
-    else rows.set(key, { top: r.top, bottom: r.bottom })
+function firstFreeSlot (placed, w, h) {
+  for (let y = 0; y < 10000; y++) {
+    for (let x = 0; x + w <= COLUMNS; x++) {
+      if (!placed.some(p => collides({ id: null, x, y, w, h }, p))) return { x, y }
+    }
+  }
+  return { x: 0, y: 0 }
+}
+
+// Pull every tile as far up as it will go. Keeps the wall gap-free and makes drops predictable; a
+// tile dropped under a tall tile still cannot rise past it, which is exactly the case that an
+// order-based flow could not express.
+export function compact (items) {
+  const out = []
+  for (const item of items.slice().sort((a, b) => (a.y - b.y) || (a.x - b.x))) {
+    const tile = { ...item }
+    while (tile.y > 0 && !out.some(p => collides({ ...tile, y: tile.y - 1 }, p))) tile.y--
+    out.push(tile)
+  }
+  return out
+}
+
+// Shove anything the moved tile overlaps downwards, cascading to whatever those tiles then hit.
+function pushAway (items, movedId) {
+  const out = items.map(t => ({ ...t }))
+  const queue = out.filter(t => t.id === movedId)
+  let guard = 0
+  while (queue.length && guard++ < 1000) {
+    const source = queue.shift()
+    for (const tile of out) {
+      if (tile.id === source.id || !collides(source, tile)) continue
+      tile.y = source.y + source.h
+      queue.push(tile)
+    }
+  }
+  return out
+}
+
+// Read the stored layouts into a resolved wall, giving anything unpositioned the first free slot.
+// A pre-coordinates layout (the px-sized { w, h } shape) has no x/y and counts as unpositioned.
+export function normalizeLayout (hosts, cardMinWidth) {
+  const positioned = []
+  const unplaced = []
+
+  for (const host of Array.isArray(hosts) ? hosts : []) {
+    const l = host?.layout
+    const hasCoords = l && ['x', 'y', 'w', 'h'].every(k => Number.isInteger(l[k]))
+    if (hasCoords) {
+      const w = clampInt(l.w, MIN_COL_SPAN, COLUMNS)
+      positioned.push({
+        id: host.id,
+        w,
+        h: Math.max(MIN_ROW_SPAN, l.h),
+        x: clampInt(l.x, 0, COLUMNS - w),
+        y: Math.max(0, l.y)
+      })
+    } else {
+      const w = defaultColSpan(cardMinWidth)
+      unplaced.push({ id: host.id, x: 0, y: 0, w, h: defaultRowSpan(w) })
+    }
   }
 
-  let index = 0
-  for (const r of rects) {
-    const row = rows.get(Math.round(r.top))
-    const midX = (r.left + r.right) / 2
-    if (point.y > row.bottom) index++ // pointer is on a later row
-    else if (point.y >= row.top && point.x > midX) index++ // same row, past the midpoint
-  }
-  return index
+  const out = positioned.slice()
+  for (const tile of unplaced) out.push({ ...tile, ...firstFreeSlot(out, tile.w, tile.h) })
+  return compact(out)
 }
 
-// Move one item, where `to` is an insertion index measured against the ORIGINAL list (that is what
-// dropIndex returns, since the dragged tile is still on screen while dragging).
-export function moveItem (list, from, to) {
-  const next = Array.isArray(list) ? list.slice() : []
-  if (!Number.isInteger(from) || from < 0 || from >= next.length) return next
-  const [item] = next.splice(from, 1)
-  const target = Math.max(0, Math.min(next.length, to > from ? to - 1 : to))
-  next.splice(target, 0, item)
-  return next
+export function moveTile (items, id, x, y) {
+  const next = items.map(t => (t.id === id
+    ? { ...t, x: clampInt(x, 0, COLUMNS - t.w), y: Math.max(0, Math.round(y)) }
+    : { ...t }))
+  return compact(pushAway(next, id))
 }
 
-// How many tracks the grid has at this width.
-export function trackCount (gridWidth, unit = GRID_UNIT) {
-  return Math.max(1, Math.floor((Number(gridWidth) || 0) / unit))
+export function resizeTile (items, id, w, h) {
+  const next = items.map((t) => {
+    if (t.id !== id) return { ...t }
+    const width = clampInt(w, MIN_COL_SPAN, COLUMNS - t.x)
+    return { ...t, w: width, h: Math.max(MIN_ROW_SPAN, Math.round(h)) }
+  })
+  return compact(pushAway(next, id))
 }
 
-// A tile's footprint is its own box plus the gap it carries as margin.
-export function colSpanForWidth (width, gap, unit = GRID_UNIT) {
-  return Math.max(1, Math.round(((Number(width) || 0) + gap) / unit))
+export function wallRows (items) {
+  return (items || []).reduce((max, t) => Math.max(max, t.y + t.h), 0)
 }
 
-export function rowSpanForHeight (height, gap, unit = GRID_UNIT) {
-  return Math.max(1, Math.ceil(((Number(height) || 0) + gap) / unit))
+// ---- pixel <-> grid ----
+export function columnWidth (containerWidth) {
+  return (Number(containerWidth) || 0) / COLUMNS
+}
+export function toColumns (px, containerWidth) {
+  const cw = columnWidth(containerWidth)
+  return cw > 0 ? Math.round(px / cw) : 0
+}
+export function toRows (px) {
+  return Math.round(px / ROW_HEIGHT)
 }
 
-// Span for a tile the user has never resized. Reproduces `repeat(auto-fill, minmax(basis, 1fr))`:
-// as many equal tiles per row as fit at `basis`, each taking an exact share of the row. Crucially
-// this is a fixed span, so a tile alone on the last row is the same width as the tiles above it
-// instead of stretching across the whole wall.
-export function autoColSpan (gridWidth, basis, gap, unit = GRID_UNIT) {
-  const cols = trackCount(gridWidth, unit)
-  const perRow = Math.max(1, Math.floor((cols * unit) / (Math.max(1, Number(basis) || 0) + gap)))
-  return Math.max(1, Math.floor(cols / perRow))
-}
-
-// Height to assume before the card has been measured, so the first paint doesn't overlap.
-export function estimateCardHeight (innerWidth, previewHeight) {
-  const preview = previewHeight ?? Math.round(((Number(innerWidth) || 0) * 800) / 1280)
-  return CARD_CHROME_HEIGHT + Math.max(0, preview)
-}
-
-// Stable DOM order for rendering: sort by id, so changing the user's order never reorders the tree.
+// Stable DOM order for rendering: sort by id, so rearranging the wall never reorders the tree.
 export function domOrder (hosts) {
   return (Array.isArray(hosts) ? hosts.slice() : []).sort((a, b) => (
     String(a?.id) < String(b?.id) ? -1 : String(a?.id) > String(b?.id) ? 1 : 0

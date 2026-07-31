@@ -2,10 +2,10 @@
 import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { browser } from '@/lib/browser.js'
 import HostCard from './HostCard.vue'
-import { setHostsOrder, setHostLayout } from '@/lib/storage.js'
+import { setHostLayouts } from '@/lib/storage.js'
 import {
-  domOrder, tileLayout, dropIndex, moveItem, clampTileWidth, clampPreviewHeight,
-  trackCount, colSpanForWidth, rowSpanForHeight, autoColSpan, estimateCardHeight, GRID_UNIT
+  domOrder, normalizeLayout, moveTile, resizeTile, wallRows,
+  columnWidth, toColumns, toRows, ROW_HEIGHT, MIN_COL_SPAN, MIN_ROW_SPAN
 } from '@/lib/layout.js'
 
 const props = defineProps({
@@ -14,77 +14,47 @@ const props = defineProps({
   settings: { type: Object, default: () => ({}) }
 })
 
-const gridEl = ref(null)
+const wallEl = ref(null)
 const isMobile = ref(false)
 const reloadNonce = ref(0)
 const mode = computed(() => (isMobile.value ? 'mobile' : 'desktop'))
-// Dragging and resizing are desktop-only: on Android tiles are lazy and a tap opens the site.
+// Arranging is desktop-only: on Android tiles are lazy, stacked, and a tap opens the site.
 const arrangeable = computed(() => !isMobile.value)
 
-// Tiles are RENDERED in a stable order (by id) and positioned with CSS `order`. Reordering the DOM
-// would reparent each moved tile's <iframe>, and Firefox reloads an iframe when it is reparented —
-// so a drag would reload every tile it passed over.
+// Rendered in a stable order and positioned absolutely. Reordering the DOM would reparent each
+// moved tile's <iframe>, and Firefox reloads an iframe when it is reparented.
 const tiles = computed(() => domOrder(props.hosts))
 
-const gesture = ref(null) // 'drag' | 'resize' | null, while a pointer gesture is in flight
-const draggingId = ref(null)
-const dragOrder = ref(null) // live id order during a drag, before it is persisted
-const resizing = ref(null) // live { id, w, h } during a resize, before it is persisted
+const wallWidth = ref(0)
+const gap = ref(14)
+const gesture = ref(null) // 'drag' | 'resize' while a pointer gesture is in flight
+const activeId = ref(null)
+const preview = ref(null) // the candidate wall during a gesture, before it is persisted
 
-const orderIds = computed(() => dragOrder.value || props.hosts.map(h => h.id))
-const orderOf = computed(() => new Map(orderIds.value.map((id, i) => [id, i])))
-
-function layoutOf (host) {
-  const base = tileLayout(host)
-  if (resizing.value?.id !== host.id) return base
-  return { w: resizing.value.w ?? base.w, h: resizing.value.h ?? base.h }
-}
-
-// --- grid geometry -------------------------------------------------------------------------
-// Tiles span fine tracks rather than sitting on a flex line, so `grid-auto-flow: dense` can pack
-// two short tiles beside one tall one, and an unsized tile alone on the last row keeps the width of
-// the tiles above it instead of stretching across the wall.
-const gridWidth = ref(0)
-const gap = ref(14) // --gap, read from the stylesheet on mount
-const cardHeights = ref(new Map()) // id -> measured px, for the row span
-
-function tileSpans (host) {
-  const { w, h } = layoutOf(host)
-  const basis = Number(props.settings?.cardMinWidth) || 320
-  const cols = Math.min(
-    trackCount(gridWidth.value),
-    w ? colSpanForWidth(w, gap.value) : autoColSpan(gridWidth.value, basis, gap.value)
-  )
-  // Until a card has been measured, estimate from its width so the first paint doesn't overlap.
-  const measured = cardHeights.value.get(host.id)
-  const height = measured ?? estimateCardHeight(cols * GRID_UNIT - gap.value, h)
-  return { cols, rows: rowSpanForHeight(height, gap.value) }
-}
+// The stored arrangement, with anything unpositioned given a slot.
+const stored = computed(() => normalizeLayout(props.hosts, props.settings?.cardMinWidth))
+const wall = computed(() => preview.value || stored.value)
+const wallHeight = computed(() => wallRows(wall.value) * ROW_HEIGHT)
 
 function tileStyle (host) {
-  const { cols, rows } = tileSpans(host)
+  const t = wall.value.find(i => i.id === host.id)
+  if (!t || !wallWidth.value) return { display: 'none' }
+  const cw = columnWidth(wallWidth.value)
+  const half = gap.value / 2
   return {
-    order: orderOf.value.get(host.id) ?? 0,
-    gridColumn: `span ${cols}`,
-    gridRow: `span ${rows}`
+    position: 'absolute',
+    left: `${t.x * cw + half}px`,
+    top: `${t.y * ROW_HEIGHT + half}px`,
+    width: `${t.w * cw - gap.value}px`,
+    height: `${t.h * ROW_HEIGHT - gap.value}px`
   }
 }
 
-function tileEl (id) {
-  return gridEl.value?.querySelector(`[data-tile-id="${CSS.escape(id)}"]`) || null
-}
-
-// Rects of every tile in current visual order, for hit-testing the drop position.
-function tileRects () {
-  const out = []
-  for (const id of orderIds.value) {
-    const el = tileEl(id)
-    if (!el) continue
-    const r = el.getBoundingClientRect()
-    out.push({ id, left: r.left, top: r.top, right: r.right, bottom: r.bottom })
-  }
-  return out
-}
+// ---- gestures ------------------------------------------------------------------------------
+// Every frame recomputes the candidate wall from the layout snapshotted at gesture START, never
+// from the previous frame. Applying moves cumulatively feeds each frame's push/compact back into
+// the next one, which is what made tiles wander unpredictably under the pointer.
+let start = null
 
 function addGestureListeners (move, end) {
   window.addEventListener('pointermove', move)
@@ -97,100 +67,102 @@ function removeGestureListeners (move, end) {
   window.removeEventListener('pointercancel', end)
 }
 
-// ---- drag to reorder ----
 function onDragStart ({ id, event }) {
   if (!arrangeable.value || gesture.value) return
-  event.preventDefault() // don't start a text selection or a native drag
-  const ids = props.hosts.map(h => h.id)
-  if (!ids.includes(id)) return
+  event.preventDefault()
+  const tile = stored.value.find(t => t.id === id)
+  const box = wallEl.value?.getBoundingClientRect()
+  if (!tile || !box) return
+  const cw = columnWidth(wallWidth.value)
+  start = {
+    id,
+    wall: stored.value,
+    // Where inside the tile the pointer grabbed, so the tile doesn't snap its corner to the cursor.
+    grabX: event.clientX - (box.left + tile.x * cw),
+    grabY: event.clientY - (box.top + tile.y * ROW_HEIGHT),
+    box
+  }
   gesture.value = 'drag'
-  draggingId.value = id
-  dragOrder.value = ids
+  activeId.value = id
+  preview.value = stored.value
   addGestureListeners(onDragMove, onDragEnd)
 }
 
 function onDragMove (event) {
-  const rects = tileRects()
-  const from = rects.findIndex(r => r.id === draggingId.value)
-  if (from < 0) return
-  const to = dropIndex(rects, { x: event.clientX, y: event.clientY })
-  dragOrder.value = moveItem(rects.map(r => r.id), from, to)
+  if (!start) return
+  const x = toColumns(event.clientX - start.box.left - start.grabX, wallWidth.value)
+  const y = toRows(event.clientY - start.box.top - start.grabY)
+  preview.value = moveTile(start.wall, start.id, x, y)
 }
-
-async function onDragEnd () {
-  removeGestureListeners(onDragMove, onDragEnd)
-  const ids = dragOrder.value
-  gesture.value = null
-  draggingId.value = null
-  // A click on the title bar is a zero-distance drag: don't write storage when nothing moved, since
-  // every write fans out to a full dashboard refresh.
-  const unchanged = !ids || ids.join('|') === props.hosts.map(h => h.id).join('|')
-  if (unchanged) { dragOrder.value = null; return }
-  // Otherwise `dragOrder` stays applied until the stored hosts come back in this order, so the tiles
-  // don't flick back to the old arrangement while the write round-trips.
-  await setHostsOrder(ids).catch(() => { dragOrder.value = null })
-}
-
-// ---- resize ----
-let resizeFrom = null
 
 function onResizeStart ({ id, edge, event }) {
   if (!arrangeable.value || gesture.value) return
   event.preventDefault()
   event.stopPropagation()
-  const card = tileEl(id)
-  if (!card) return
-  const preview = card.querySelector('.preview')
-  resizeFrom = {
-    id,
-    edge,
-    x: event.clientX,
-    y: event.clientY,
-    w: card.getBoundingClientRect().width,
-    h: preview ? preview.getBoundingClientRect().height : 0
-  }
+  const tile = stored.value.find(t => t.id === id)
+  if (!tile) return
+  start = { id, edge, wall: stored.value, x: event.clientX, y: event.clientY, w: tile.w, h: tile.h }
   gesture.value = 'resize'
-  resizing.value = { id, w: null, h: null }
+  activeId.value = id
+  preview.value = stored.value
   addGestureListeners(onResizeMove, onResizeEnd)
 }
 
 function onResizeMove (event) {
-  const s = resizeFrom
-  if (!s) return
-  const widthEdge = s.edge === 'east' || s.edge === 'corner'
-  const heightEdge = s.edge === 'south' || s.edge === 'corner'
-  resizing.value = {
-    id: s.id,
-    w: widthEdge ? clampTileWidth(s.w + (event.clientX - s.x)) : null,
-    h: heightEdge ? clampPreviewHeight(s.h + (event.clientY - s.y)) : null
-  }
+  if (!start) return
+  const widthEdge = start.edge === 'east' || start.edge === 'corner'
+  const heightEdge = start.edge === 'south' || start.edge === 'corner'
+  const w = widthEdge
+    ? Math.max(MIN_COL_SPAN, start.w + toColumns(event.clientX - start.x, wallWidth.value))
+    : start.w
+  const h = heightEdge
+    ? Math.max(MIN_ROW_SPAN, start.h + toRows(event.clientY - start.y))
+    : start.h
+  preview.value = resizeTile(start.wall, start.id, w, h)
 }
 
-async function onResizeEnd () {
-  removeGestureListeners(onResizeMove, onResizeEnd)
-  const live = resizing.value
+async function commit () {
+  const next = preview.value
+  const before = start?.wall
   gesture.value = null
-  resizeFrom = null
-  if (live) {
-    const patch = {}
-    if (live.w != null) patch.w = live.w
-    if (live.h != null) patch.h = live.h
-    if (Object.keys(patch).length) await setHostLayout(live.id, patch).catch(() => {})
-  }
-  resizing.value = null
+  activeId.value = null
+  start = null
+  // A click that moved nothing must not write: every write fans out to a full dashboard refresh.
+  if (!next || !before || JSON.stringify(next) === JSON.stringify(before)) { preview.value = null; return }
+  const byId = Object.fromEntries(next.map(t => [t.id, t]))
+  // Keep the candidate on screen until the stored hosts come back, so the wall doesn't flick.
+  await setHostLayouts(byId).catch(() => { preview.value = null })
 }
 
-// Drop the local order override once the stored order has caught up (or the list changed under us).
-watch(() => props.hosts.map(h => h.id).join('|'), (ids) => {
-  if (!gesture.value && dragOrder.value && dragOrder.value.join('|') === ids) dragOrder.value = null
-})
-// Never leave a gesture override applied after switching to the mobile layout.
-watch(arrangeable, (on) => {
-  if (!on) { dragOrder.value = null; resizing.value = null; gesture.value = null }
-})
+function onDragEnd () {
+  removeGestureListeners(onDragMove, onDragEnd)
+  commit()
+}
+function onResizeEnd () {
+  removeGestureListeners(onResizeMove, onResizeEnd)
+  commit()
+}
 
-// Preview-refresh cadence, separate from the background-check interval. 0 = off → previews load
-// once on open (HostCard.onMounted) and never auto-reload.
+// Drop the candidate once the stored wall matches it.
+watch(stored, (next) => {
+  if (!gesture.value && preview.value && JSON.stringify(next) === JSON.stringify(preview.value)) {
+    preview.value = null
+  }
+})
+watch(arrangeable, (on) => { if (!on) { preview.value = null; gesture.value = null; start = null } })
+
+// ---- measurement ---------------------------------------------------------------------------
+let wallObserver = null
+
+function syncWall () {
+  const el = wallEl.value
+  if (!el) return
+  wallWidth.value = el.clientWidth || 0
+  wallObserver?.disconnect()
+  wallObserver?.observe(el)
+}
+
+// ---- preview refresh (unchanged behaviour) ---------------------------------------------------
 const previewMs = computed(() => (Number(props.settings?.previewIntervalMinutes) || 0) * 60000)
 let timer = null
 
@@ -229,63 +201,30 @@ async function resolveMode () {
     }
   }
   startTimer()
-}
-
-// Row spans come from what each card actually measures — card height is content-driven (preview
-// aspect, optional chart, optional error banner), so it can't be derived from the stored size.
-let cardObserver = null
-let gridObserver = null
-
-function measureCards () {
-  if (!gridEl.value) return
-  const next = new Map()
-  for (const el of gridEl.value.querySelectorAll('[data-tile-id]')) {
-    next.set(el.dataset.tileId, el.getBoundingClientRect().height)
-  }
-  cardHeights.value = next
-}
-
-// Bind to whatever grid element currently exists and measure it. The grid is behind `v-if` on the
-// host list — on first mount the hosts haven't loaded yet, so there is nothing to observe and this
-// has to run again once tiles appear (and again when the layout mode remounts the grid).
-function syncObservers () {
-  const el = gridEl.value
-  if (!el) return
-  gridWidth.value = el.clientWidth || 0
-  gridObserver?.disconnect()
-  gridObserver?.observe(el)
-  if (!cardObserver) return
-  cardObserver.disconnect()
-  for (const card of el.querySelectorAll('[data-tile-id]')) cardObserver.observe(card)
-  measureCards()
+  nextTick(syncWall)
 }
 
 onMounted(() => {
   resolveMode()
   document.addEventListener('visibilitychange', onVisibility)
-  const raw = getComputedStyle(document.documentElement).getPropertyValue('--gap')
-  gap.value = parseInt(raw, 10) || 14
+  gap.value = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--gap'), 10) || 14
   if ('ResizeObserver' in window) {
-    gridObserver = new ResizeObserver(() => { gridWidth.value = gridEl.value?.clientWidth || 0 })
-    cardObserver = new ResizeObserver(measureCards)
+    wallObserver = new ResizeObserver(() => { wallWidth.value = wallEl.value?.clientWidth || 0 })
   }
-  nextTick(syncObservers)
+  nextTick(syncWall)
 })
-
-// Tiles appearing/disappearing, or the mode remounting the grid, both need a fresh binding.
-watch(() => tiles.value.map(h => h.id).join('|'), () => nextTick(syncObservers))
-watch(mode, () => nextTick(syncObservers))
-// React to a layout-mode change from Settings without needing a reload.
-watch(() => props.settings?.mode, resolveMode)
-// Restart the wall timer live when the preview-refresh setting changes.
+// The wall element lives behind v-if on the host list, which is empty on the first mount.
+watch(() => tiles.value.length, () => nextTick(syncWall))
+watch(mode, () => nextTick(syncWall))
 watch(() => props.settings?.previewIntervalMinutes, startTimer)
+watch(() => props.settings?.mode, resolveMode)
+
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
   document.removeEventListener('visibilitychange', onVisibility)
   removeGestureListeners(onDragMove, onDragEnd)
   removeGestureListeners(onResizeMove, onResizeEnd)
-  gridObserver?.disconnect()
-  cardObserver?.disconnect()
+  wallObserver?.disconnect()
 })
 </script>
 
@@ -300,21 +239,21 @@ onBeforeUnmount(() => {
     <!-- key by mode so cards remount cleanly when the layout mode is switched -->
     <div
       v-else
-      ref="gridEl"
+      ref="wallEl"
       :key="mode"
-      class="grid"
-      :class="{ arranging: !!gesture }"
+      class="wall"
+      :class="{ positioned: arrangeable, arranging: !!gesture }"
+      :style="arrangeable ? { height: wallHeight + 'px' } : null"
     >
       <HostCard
         v-for="host in tiles"
         :key="host.id"
         :data-tile-id="host.id"
-        :class="{ dragging: draggingId === host.id }"
-        :style="tileStyle(host)"
+        :class="{ active: activeId === host.id }"
+        :style="arrangeable ? tileStyle(host) : null"
         :host="host"
         :result="results[host.id] || {}"
         :mode="mode"
-        :layout="layoutOf(host)"
         :arrangeable="arrangeable"
         :reload-nonce="reloadNonce"
         @dragstart="onDragStart"

@@ -9,10 +9,8 @@ const props = defineProps({
   result: { type: Object, default: () => ({}) },
   mode: { type: String, default: 'desktop' }, // 'desktop' | 'mobile'
   reloadNonce: { type: Number, default: 0 },
-  // Desktop tile size, { w, h } in px with null = automatic. Width is applied by MonitorGrid (it
-  // owns the flex line); only the preview height is applied here.
-  layout: { type: Object, default: () => ({}) },
-  // Drag-to-reorder and resize are desktop-only; MonitorGrid runs the gestures.
+  // Drag-to-reposition and resize are desktop-only; MonitorGrid owns the tile geometry and runs
+  // the gestures, so this component only reports where a gesture started.
   arrangeable: { type: Boolean, default: false }
 })
 
@@ -48,11 +46,14 @@ const lastCheckText = computed(() =>
   latest.value.timestamp ? new Date(latest.value.timestamp).toLocaleTimeString() : '—')
 
 function applyScale () {
-  const w = previewBox.value?.clientWidth || 320
+  const box = previewBox.value
+  if (!box) return
+  const w = box.clientWidth || 320
   scale.value = w / 1280
-  // A resized tile keeps the width-derived scale and grows its viewport instead, so a taller tile
-  // reveals more of the page rather than magnifying the same 800px of it.
-  previewHeight.value = props.layout?.h ?? Math.round(800 * scale.value)
+  // On the positioned wall the box height comes from the tile; on mobile it falls back to 16:10.
+  // Either way the scale follows WIDTH only, so a taller tile reveals more of the page instead of
+  // magnifying the same 800px of it.
+  previewHeight.value = box.clientHeight || Math.round(800 * scale.value)
 }
 // The iframe is a fixed 1280px-wide viewport scaled to the tile; its height is whatever the visible
 // box covers at that scale. Resizing an iframe does not reload it.
@@ -105,10 +106,6 @@ onMounted(() => {
   }
 })
 onBeforeUnmount(() => { ro?.disconnect(); io?.disconnect() })
-
-// A resize changes the preview box height without the width changing, so ResizeObserver may not
-// fire — recompute explicitly.
-watch(() => props.layout?.h, applyScale)
 
 // Desktop "wall" auto-refresh, or manual refresh, bumps the nonce. Defer an auto-refresh while the
 // tile is hovered so it doesn't interrupt interaction with the (desktop-interactive) preview.
@@ -212,7 +209,7 @@ function onMouseLeave () {
     <div
       ref="previewBox"
       class="preview"
-      :style="{ height: previewHeight + 'px' }"
+      :style="arrangeable ? null : { height: previewHeight + 'px' }"
     >
       <iframe
         v-if="frameSrc"

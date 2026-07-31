@@ -35,10 +35,11 @@ security-sensitive headers). Firefox is also the only mainstream browser with ex
 - **Desktop:** every tile renders live and is interactive; the wall auto-refreshes every ~2 minutes
   while the tab is in focus (backgrounded tabs pause). Use the ↗ button to open a site in a new tab,
   ⟳ to reload a tile.
-- **Arrange the wall (desktop).** Drag a tile by its title bar to reorder it, and drag its right edge,
-  bottom edge or bottom-right corner to size it on its own. A taller tile shows *more of the page*
-  rather than magnifying it, and the wall packs around it — make one tile double height and two
-  normal tiles stack beside it. **Settings → Reset tile sizes** puts everything back to automatic.
+- **Arrange the wall (desktop).** Drag a tile by its title bar to put it anywhere — beside a taller
+  tile or below it — and drag its right edge, bottom edge or bottom-right corner to size it. A taller
+  tile shows *more of the page* rather than magnifying it. Tiles keep their arrangement as the window
+  changes size; the wall is a fixed number of columns whose width scales.
+  **Settings → Reset tile layout** puts everything back to automatic.
 - **Android:** tiles render lazily as you scroll; tap a tile to open the site.
 
 ## Known limitations
