@@ -47,6 +47,20 @@ test('normalizeLayout: a pre-coordinates px layout counts as unpositioned, not a
   assert.equal(at(out, 'h0').x, 0)
 })
 
+test('normalizeLayout: a new tile does not claim a gap the wall has already closed', () => {
+  // Removing a host leaves the survivors with stale saved coordinates — nothing rewrites them — so
+  // a tile saved at y:40 renders compacted at y:0. Adding a host must not be handed that vacated
+  // slot, which would shove the existing tile back down as soon as you add a site.
+  const w = defaultColSpan(320)
+  const h = defaultRowSpan(w)
+  const saved = { id: 'kept', layout: { x: 0, y: h, w, h } }
+  assert.equal(normalizeLayout([saved], 320)[0].y, 0) // on its own it settles at the top
+
+  const out = normalizeLayout([saved, { id: 'added' }], 320)
+  assert.equal(at(out, 'kept').y, 0) // and stays there
+  assert.deepEqual({ x: at(out, 'added').x, y: at(out, 'added').y }, { x: w, y: 0 }) // beside it
+})
+
 test('normalizeLayout: mixed positioned and unpositioned tiles do not overlap', () => {
   const out = normalizeLayout(hosts({ x: 0, y: 0, w: 16, h: 40 }, undefined, undefined), 320)
   for (const a of out) for (const b of out) assert.equal(collides(a, b), false)

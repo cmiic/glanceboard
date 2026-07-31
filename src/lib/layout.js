@@ -103,7 +103,11 @@ export function normalizeLayout (hosts, cardMinWidth) {
     }
   }
 
-  const out = positioned.slice()
+  // Settle the saved tiles BEFORE looking for free slots. Removing a host leaves the survivors with
+  // stale saved coordinates (nothing rewrites them), so a tile saved at y:40 renders compacted at
+  // y:0 — and searching the raw coordinates would hand the vacated y:0 slot to a newly added tile,
+  // shoving the existing one back down.
+  const out = compact(positioned)
   for (const tile of unplaced) out.push({ ...tile, ...firstFreeSlot(out, tile.w, tile.h) })
   return compact(out)
 }

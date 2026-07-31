@@ -50,10 +50,14 @@ function applyScale () {
   if (!box) return
   const w = box.clientWidth || 320
   scale.value = w / 1280
-  // On the positioned wall the box height comes from the tile; on mobile it falls back to 16:10.
-  // Either way the scale follows WIDTH only, so a taller tile reveals more of the page instead of
+  // On the positioned wall the card's height comes from its tile, so the flexed box height IS the
+  // preview height. Elsewhere (mobile) the card has no fixed height and the box height is whatever
+  // we last wrote inline — reading it back would pin the preview at its initial value forever, so
+  // derive 16:10 from the width instead.
+  // The scale follows WIDTH in both cases, so a taller tile reveals more page rather than
   // magnifying the same 800px of it.
-  previewHeight.value = box.clientHeight || Math.round(800 * scale.value)
+  const aspect = Math.round(800 * scale.value)
+  previewHeight.value = props.arrangeable ? (box.clientHeight || aspect) : aspect
 }
 // The iframe is a fixed 1280px-wide viewport scaled to the tile; its height is whatever the visible
 // box covers at that scale. Resizing an iframe does not reload it.
