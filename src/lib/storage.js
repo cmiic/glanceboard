@@ -2,7 +2,7 @@ import { browser } from './browser.js'
 import { normalizeTarget } from './url.js'
 
 // storage.local schema:
-//   hosts:      [{ id, url, hostname, origin, label, addedAt, metrics:{cert,load}, layout:{w,h} }]
+//   hosts:      [{ id, url, hostname, origin, label, addedAt, metrics:{cert,load}, layout:{x,y,w,h} }]
 //               id = the normalized URL: the bare origin for a whole-site entry, origin + path for a
 //               single monitored page. Several pages of one host are independent entries.
 //               layout = { x, y, w, h } desktop tile position and size in grid units (see

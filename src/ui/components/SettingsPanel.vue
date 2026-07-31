@@ -34,12 +34,12 @@ function saveNotifications () { setSettings({ notificationsEnabled: notification
 function saveDefaults () { setSettings({ metricDefaults: { cert: defCert.value, load: defLoad.value } }) }
 function applyAll (key, value) { setAllHostsMetric(key, value) }
 
-// Clears per-tile sizes only; the tile order is the user's arrangement, not a size.
-const sizesReset = ref(false)
-async function resetSizes () {
+// Drops the whole arrangement: position AND size, since a tile's layout is one { x, y, w, h }.
+const layoutReset = ref(false)
+async function resetLayout () {
   await resetHostLayouts()
-  sizesReset.value = true
-  setTimeout(() => { sizesReset.value = false }, 2000)
+  layoutReset.value = true
+  setTimeout(() => { layoutReset.value = false }, 2000)
 }
 
 // The dashboard is a normal extension page (no new-tab override). Expose its URL so the user can
@@ -329,14 +329,14 @@ async function doImport () {
       <div class="field">
         <button
           class="btn btn-sm"
-          @click="resetSizes"
+          @click="resetLayout"
         >
           Reset tile layout
         </button>
         <span
-          v-if="sizesReset"
+          v-if="layoutReset"
           class="popup-load"
-        >Tiles are back to automatic placement</span>
+        >Tiles are back to automatic position and size</span>
       </div>
     </div>
 

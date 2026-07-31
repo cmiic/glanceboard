@@ -41,12 +41,15 @@ function tileStyle (host) {
   if (!t || !wallWidth.value) return { display: 'none' }
   const cw = columnWidth(wallWidth.value)
   const half = gap.value / 2
+  // Subtracting the gap can go negative on a very narrow wall — a minimum-span tile does so below
+  // ~168px. A negative CSS length is invalid and gets dropped, which would let the tile size itself
+  // to its content and overlap its neighbours; collapsing to 0 degrades predictably instead.
   return {
     position: 'absolute',
     left: `${t.x * cw + half}px`,
     top: `${t.y * ROW_HEIGHT + half}px`,
-    width: `${t.w * cw - gap.value}px`,
-    height: `${t.h * ROW_HEIGHT - gap.value}px`
+    width: `${Math.max(0, t.w * cw - gap.value)}px`,
+    height: `${Math.max(0, t.h * ROW_HEIGHT - gap.value)}px`
   }
 }
 
