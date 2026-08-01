@@ -46,6 +46,46 @@ Listing fields:
 1. Bump `version` in `package.json` (WXT syncs it into the built manifest).
 2. Run `npm run submit:dry` to validate credentials without uploading, then `npm run submit` to build,
    zip, and upload to the listed channel.
+3. **Tag the published commit** so the AMO version can be traced back to source. Pass the commit
+   explicitly — `git tag` defaults to `HEAD`, which is not necessarily what was uploaded:
+
+   ```bash
+   git tag -a v<version> <commit> -m "<version> — on AMO (status: <status>)"
+   git push origin v<version>
+   ```
+
+   `<status>` is what AMO reports for that version at tagging time — a freshly uploaded version is
+   usually awaiting review rather than `public`.
+
+   Submit from the merged commit where possible, so `<commit>` is unambiguous. If a release was
+   submitted from a feature branch before merging (0.2.0 was), confirm the merged commit carries the
+   same source before tagging it, then tag the merged commit:
+
+   ```bash
+   git rev-parse <branch-commit>^{tree} <merged-commit>^{tree}   # the two hashes must match
+   ```
+
+   Tag only what was actually submitted. A version that gets bumped but never uploaded (0.2.1 and
+   0.3.0 both were) gets **no** tag, so every tag in the repo corresponds to a version that exists on
+   AMO.
+
+   To check what AMO actually holds — useful before tagging retroactively, and it does not depend on
+   local memory of what was sent:
+
+   ```bash
+   curl -fsS -H "Authorization: JWT <token>" \
+     "https://addons.mozilla.org/api/v5/addons/addon/glanceboard@miic.at/versions/?filter=all_with_unlisted"
+   ```
+
+   `-f` matters: without it curl exits 0 on an HTTP error and prints the error body, which reads like
+   AMO returning no versions — and an empty-looking list is exactly the answer that would send you
+   tagging the wrong things.
+
+   The token is a short-lived HS256 JWT signed with `FIREFOX_JWT_SECRET`, carrying
+   `{ iss: FIREFOX_JWT_ISSUER, jti, iat, exp }` — the same credentials `npm run submit` uses. It is
+   not optional for this purpose: the endpoint also answers **unauthenticated**, but only with
+   publicly visible versions. Here that silently omitted 0.1.0 and 0.1.1, which had been uploaded and
+   later disabled — enough to produce an incomplete tag set while looking like a complete answer.
 
 ## Notes to Reviewer
 
