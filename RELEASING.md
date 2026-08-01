@@ -46,6 +46,27 @@ Listing fields:
 1. Bump `version` in `package.json` (WXT syncs it into the built manifest).
 2. Run `npm run submit:dry` to validate credentials without uploading, then `npm run submit` to build,
    zip, and upload to the listed channel.
+3. **Tag the published commit** so the AMO version can be traced back to source:
+
+   ```bash
+   git tag -a v<version> -m "<version> — on AMO (status: public)"
+   git push origin v<version>
+   ```
+
+   Tag only what was actually submitted. A version that gets bumped but never uploaded (0.2.1 and
+   0.3.0 both were) gets **no** tag, so every tag in the repo corresponds to a version that exists on
+   AMO. Submit from the merged commit where possible, so the tag names exactly what was uploaded.
+
+   To check what AMO actually holds — useful before tagging retroactively, and it does not depend on
+   local memory of what was sent:
+
+   ```bash
+   curl -s -H "Authorization: JWT <token>" \
+     "https://addons.mozilla.org/api/v5/addons/addon/glanceboard@miic.at/versions/?filter=all_with_unlisted"
+   ```
+
+   The token is a short-lived HS256 JWT signed with `FIREFOX_JWT_SECRET`, carrying
+   `{ iss: FIREFOX_JWT_ISSUER, jti, iat, exp }` — the same credentials `npm run submit` uses.
 
 ## Notes to Reviewer
 
