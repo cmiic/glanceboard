@@ -37,9 +37,19 @@ test('parseRss: caps items and rejects malformed, DOCTYPE and non-RSS documents'
     }
   }
   assert.throws(() => parseRss('<rss><channel>', { url: 'https://x.test', Parser: ErrorParser }), /Malformed/)
-  assert.throws(() => parseRss('<!DOCTYPE rss><rss><channel/></rss>', { url: 'https://x.test', Parser: DOMParser }), /DOCTYPE/)
+  assert.throws(() => parseRss('<?xml version="1.0"?><!-- prolog --><!DOCTYPE rss><rss><channel/></rss>', {
+    url: 'https://x.test', Parser: DOMParser
+  }), /DOCTYPE/)
   assert.throws(() => parseRss('<feed xmlns="http://www.w3.org/2005/Atom"/>', { url: 'https://x.test', Parser: DOMParser }), /RSS/)
   assert.throws(() => parseRss('<rss version="0.91"><channel/></rss>', { url: 'https://x.test', Parser: DOMParser }), /RSS 1.0 and 2.0/)
+})
+
+test('parseRss: allows literal DOCTYPE text inside item CDATA', () => {
+  const literal = `<rss version="2.0"><channel><title>x</title><item><guid>one</guid><title>Example</title>
+    <description><![CDATA[Literal <!DOCTYPE html> text]]></description></item></channel></rss>`
+  const parsed = parseRss(literal, { url: 'https://x.test/feed', Parser: DOMParser })
+  assert.equal(parsed.items.length, 1)
+  assert.match(parsed.items[0].description, /^Literal/)
 })
 
 test('parseRss: supports RSS 1.0/RDF feeds such as rss.orf.at', () => {

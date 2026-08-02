@@ -1,7 +1,7 @@
 import { browser } from './browser.js'
 import { normalizeTarget } from './url.js'
 import { normalizeHttpUrl } from './rss.js'
-import { feedSourceDisplay } from './feed-settings.js'
+import { feedGroupNameKey, feedSourceDisplay } from './feed-settings.js'
 
 // storage.local schema:
 //   hosts:      [{ id, url, hostname, origin, label, addedAt, metrics:{cert,load}, layout:{x,y,w,h} }]
@@ -200,8 +200,8 @@ function cleanGroupName (name) {
 }
 
 function groupNameExists (groups, name, exceptId = null) {
-  const key = name.toLocaleLowerCase()
-  return groups.some(group => group.id !== exceptId && group.name.toLocaleLowerCase() === key)
+  const key = feedGroupNameKey(name)
+  return groups.some(group => group.id !== exceptId && feedGroupNameKey(group.name) === key)
 }
 
 function newGroupId () {

@@ -109,9 +109,28 @@ export function truncateFeedDescription (value, maxChars) {
   return characters.length > limit ? `${characters.slice(0, limit).join('').trimEnd()}…` : text
 }
 
+// A DOCTYPE is legal only in the XML prolog, after the optional declaration, comments and
+// processing instructions. Inspect that prefix without parsing so external/internal DTDs are
+// rejected before DOMParser sees them, while literal "<!DOCTYPE" text inside CDATA remains valid.
+function hasPrologDoctype (xml) {
+  let remaining = xml.trimStart()
+  if (/^<\?xml(?:\s|\?>)/i.test(remaining)) {
+    const end = remaining.indexOf('?>')
+    if (end < 0) return false
+    remaining = remaining.slice(end + 2).trimStart()
+  }
+  while (remaining.startsWith('<!--') || remaining.startsWith('<?')) {
+    const closing = remaining.startsWith('<!--') ? '-->' : '?>'
+    const end = remaining.indexOf(closing)
+    if (end < 0) return false
+    remaining = remaining.slice(end + closing.length).trimStart()
+  }
+  return /^<!DOCTYPE(?:\s|>)/i.test(remaining)
+}
+
 export function parseRss (xml, { url, Parser = globalThis.DOMParser } = {}) {
   if (typeof xml !== 'string' || !xml.trim()) throw new Error('Empty RSS response')
-  if (/<!DOCTYPE/i.test(xml)) throw new Error('RSS documents with a DOCTYPE are not supported')
+  if (hasPrologDoctype(xml)) throw new Error('RSS documents with a DOCTYPE are not supported')
   if (typeof Parser !== 'function') throw new Error('DOMParser is unavailable')
 
   const document = new Parser().parseFromString(xml, 'application/xml')

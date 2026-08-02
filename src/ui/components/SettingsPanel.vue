@@ -7,6 +7,7 @@ import {
 } from '@/lib/storage.js'
 import { normalizeTarget } from '@/lib/url.js'
 import { buildExportDocument, normalizeImportFeed, parseImportDocument } from '@/lib/backup.js'
+import { feedGroupNameKey } from '@/lib/feed-settings.js'
 
 const props = defineProps({ settings: { type: Object, default: () => ({}) } })
 
@@ -118,7 +119,8 @@ async function doImport () {
     for (const url of validSites) await addHost(url).catch(() => {})
     let currentGroups = await getFeedGroups()
     for (const imported of validGroups) {
-      let group = currentGroups.find(item => item.name.toLocaleLowerCase() === imported.name.toLocaleLowerCase())
+      const importedNameKey = feedGroupNameKey(imported.name)
+      let group = currentGroups.find(item => feedGroupNameKey(item.name) === importedNameKey)
       if (!group) {
         group = await createFeedGroup(imported.name)
         currentGroups = await getFeedGroups()

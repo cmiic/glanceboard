@@ -4,6 +4,12 @@ export const DEFAULT_FEED_DISPLAY = Object.freeze({
   descriptionMaxChars: 240 // 0 keeps the full normalized plain-text description
 })
 
+// Group-name identity must not vary with the browser's UI locale. This key is shared by storage
+// validation and import matching so they always apply exactly the same comparison semantics.
+export function feedGroupNameKey (name) {
+  return String(name || '').toLowerCase()
+}
+
 export function feedSourceDisplay (source) {
   const display = source?.display || {}
   const rawLimit = display.descriptionMaxChars
