@@ -2,7 +2,8 @@
 import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue'
 import { browser } from '@/lib/browser.js'
 import HostCard from './HostCard.vue'
-import { setHostLayouts } from '@/lib/storage.js'
+import FeedGroupCard from './FeedGroupCard.vue'
+import { setTileLayouts } from '@/lib/storage.js'
 import { stepDelay, pacedSweep } from '@/lib/schedule.js'
 import {
   domOrder, normalizeLayout, moveTile, resizeTile, wallRows,
@@ -11,6 +12,9 @@ import {
 
 const props = defineProps({
   hosts: { type: Array, default: () => [] },
+  feedGroups: { type: Array, default: () => [] },
+  feedSources: { type: Array, default: () => [] },
+  feedCaches: { type: Object, default: () => ({}) },
   results: { type: Object, default: () => ({}) },
   settings: { type: Object, default: () => ({}) }
 })
@@ -21,9 +25,16 @@ const mode = computed(() => (isMobile.value ? 'mobile' : 'desktop'))
 // Arranging is desktop-only: on Android tiles are lazy, stacked, and a tap opens the site.
 const arrangeable = computed(() => !isMobile.value)
 
+const nonEmptyFeedGroups = computed(() => props.feedGroups.filter(group =>
+  props.feedSources.some(source => source.groupId === group.id)))
+const tileRecords = computed(() => [
+  ...props.hosts.map(host => ({ ...host, kind: 'site' })),
+  ...nonEmptyFeedGroups.value.map(group => ({ ...group, kind: 'feed-group' }))
+])
+
 // Rendered in a stable order and positioned absolutely. Reordering the DOM would reparent each
 // moved tile's <iframe>, and Firefox reloads an iframe when it is reparented.
-const tiles = computed(() => domOrder(props.hosts))
+const tiles = computed(() => domOrder(tileRecords.value))
 
 const wallWidth = ref(0)
 const gap = ref(14)
@@ -32,7 +43,7 @@ const activeId = ref(null)
 const preview = ref(null) // the candidate wall during a gesture, before it is persisted
 
 // The stored arrangement, with anything unpositioned given a slot.
-const stored = computed(() => normalizeLayout(props.hosts, props.settings?.cardMinWidth))
+const stored = computed(() => normalizeLayout(tileRecords.value, props.settings?.cardMinWidth))
 const wall = computed(() => preview.value || stored.value)
 const wallHeight = computed(() => wallRows(wall.value) * ROW_HEIGHT)
 
@@ -134,7 +145,7 @@ async function commit () {
   if (!next || !before || JSON.stringify(next) === JSON.stringify(before)) { preview.value = null; return }
   const byId = Object.fromEntries(next.map(t => [t.id, t]))
   // Keep the candidate on screen until the stored hosts come back, so the wall doesn't flick.
-  await setHostLayouts(byId).catch(() => { preview.value = null })
+  await setTileLayouts(byId).catch(() => { preview.value = null })
 }
 
 function onDragEnd () {
@@ -178,8 +189,12 @@ let sweepId = 0 // bumped to abandon a sweep in flight
 let sweeping = false
 let step = null // the tile the current sweep is waiting on
 
-function tilesInReadingOrder () {
-  return wall.value.slice().sort((a, b) => (a.y - b.y) || (a.x - b.x)).map(t => t.id)
+function tilesInReadingOrder ({ sitesOnly = false } = {}) {
+  const sites = new Set(props.hosts.map(host => host.id))
+  return wall.value.slice()
+    .sort((a, b) => (a.y - b.y) || (a.x - b.x))
+    .map(t => t.id)
+    .filter(id => !sitesOnly || sites.has(id))
 }
 
 // Resolves when this tile reports it loaded, or when its step elapses — whichever comes first.
@@ -259,7 +274,7 @@ function startTimer () {
   if (!isMobile.value && !document.hidden && previewMs.value >= 60000) {
     // A sweep always fits inside its interval (stepDelay guarantees it), so a refresh never
     // lands on one still running — but skip rather than restart if it somehow does.
-    timer = setInterval(() => { if (!sweeping) sweep(tilesInReadingOrder()) }, previewMs.value)
+    timer = setInterval(() => { if (!sweeping) sweep(tilesInReadingOrder({ sitesOnly: true })) }, previewMs.value)
   }
 }
 
@@ -274,7 +289,7 @@ function onVisibility () {
   }
   if (isMobile.value) return
   if (previewMs.value >= 60000) {
-    sweep(tilesInReadingOrder())
+    sweep(tilesInReadingOrder({ sitesOnly: true }))
     startTimer()
   } else {
     // Refresh is off, but hiding the tab may have cancelled the initial sweep part-way. Finish it,
@@ -340,10 +355,10 @@ onBeforeUnmount(() => {
 <template>
   <div>
     <div
-      v-if="!hosts.length"
+      v-if="!tiles.length"
       class="empty"
     >
-      No sites yet — add one from the <strong>Sites</strong> tab.
+      No tiles yet — add a website or RSS feed from the <strong>Sites</strong> or <strong>Feeds</strong> tab.
     </div>
     <!-- key by mode so cards remount cleanly when the layout mode is switched -->
     <div
@@ -354,21 +369,40 @@ onBeforeUnmount(() => {
       :class="{ positioned: arrangeable, arranging: !!gesture }"
       :style="arrangeable ? { height: wallHeight + 'px' } : null"
     >
-      <HostCard
-        v-for="host in tiles"
-        :key="host.id"
-        :data-tile-id="host.id"
-        :class="{ active: activeId === host.id }"
-        :style="arrangeable ? tileStyle(host) : null"
-        :host="host"
-        :result="results[host.id] || {}"
-        :mode="mode"
-        :arrangeable="arrangeable"
-        :reload-nonce="reloadNonces[host.id] || 0"
-        @dragstart="onDragStart"
-        @resizestart="onResizeStart"
-        @loaded="onTileLoaded"
-      />
+      <template
+        v-for="tile in tiles"
+        :key="tile.id"
+      >
+        <HostCard
+          v-if="tile.kind === 'site'"
+          :data-tile-id="tile.id"
+          :class="{ active: activeId === tile.id }"
+          :style="arrangeable ? tileStyle(tile) : null"
+          :host="tile"
+          :result="results[tile.id] || {}"
+          :mode="mode"
+          :arrangeable="arrangeable"
+          :reload-nonce="reloadNonces[tile.id] || 0"
+          @dragstart="onDragStart"
+          @resizestart="onResizeStart"
+          @loaded="onTileLoaded"
+        />
+        <FeedGroupCard
+          v-else
+          :data-tile-id="tile.id"
+          :class="{ active: activeId === tile.id }"
+          :style="arrangeable ? tileStyle(tile) : null"
+          :group="tile"
+          :sources="feedSources.filter(source => source.groupId === tile.id)"
+          :caches="feedCaches"
+          :mode="mode"
+          :arrangeable="arrangeable"
+          :reload-nonce="reloadNonces[tile.id] || 0"
+          @dragstart="onDragStart"
+          @resizestart="onResizeStart"
+          @loaded="onTileLoaded"
+        />
+      </template>
     </div>
   </div>
 </template>

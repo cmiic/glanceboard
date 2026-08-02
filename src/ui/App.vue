@@ -1,10 +1,14 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { browser } from '@/lib/browser.js'
-import { getHosts, getAllResults, getSettings, onChanged, entryLabel } from '@/lib/storage.js'
+import {
+  getHosts, getAllResults, getSettings, getFeedGroups, getFeedSources, getAllFeedCaches,
+  onChanged, entryLabel
+} from '@/lib/storage.js'
 import { isCertExpiringSoon, isLoadSlow, isStale } from '@/lib/thresholds.js'
 import MonitorGrid from './components/MonitorGrid.vue'
 import HostList from './components/HostList.vue'
+import FeedList from './components/FeedList.vue'
 import AddHostForm from './components/AddHostForm.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 
@@ -13,20 +17,60 @@ const props = defineProps({ view: { type: String, default: 'dashboard' } })
 const hosts = ref([])
 const results = ref({})
 const settings = ref({})
+const feedGroups = ref([])
+const feedSources = ref([])
+const feedCaches = ref({})
 const tab = ref('monitor')
 const isPopup = computed(() => props.view === 'popup')
+const nonEmptyFeedGroups = computed(() => feedGroups.value.filter(group =>
+  feedSources.value.some(source => source.groupId === group.id)))
 
 async function refresh () {
-  const [h, r, s] = await Promise.all([getHosts(), getAllResults(), getSettings()])
+  const [h, r, s, groups, sources, caches] = await Promise.all([
+    getHosts(), getAllResults(), getSettings(), getFeedGroups(), getFeedSources(), getAllFeedCaches()
+  ])
   hosts.value = h
   results.value = r
   settings.value = s
+  feedGroups.value = groups
+  feedSources.value = sources
+  feedCaches.value = caches
 }
 
+function applyStorageChanges (changes) {
+  if (changes.hosts) hosts.value = changes.hosts.newValue || []
+  if (changes.feedGroups) feedGroups.value = changes.feedGroups.newValue || []
+  if (changes.feedSources) feedSources.value = changes.feedSources.newValue || []
+  if (changes.settings) getSettings().then(value => { settings.value = value })
+
+  let nextResults = null
+  let nextCaches = null
+  for (const [key, change] of Object.entries(changes)) {
+    if (key.startsWith('result:')) {
+      nextResults ||= { ...results.value }
+      const id = key.slice('result:'.length)
+      if (change.newValue == null) delete nextResults[id]
+      else nextResults[id] = change.newValue
+    } else if (key.startsWith('feed-cache:')) {
+      nextCaches ||= { ...feedCaches.value }
+      const id = key.slice('feed-cache:'.length)
+      if (change.newValue == null) delete nextCaches[id]
+      else nextCaches[id] = change.newValue
+    }
+  }
+  if (nextResults) results.value = nextResults
+  if (nextCaches) feedCaches.value = nextCaches
+
+  // Only the one-time legacy migration touches the old monolithic results key.
+  if (changes.results) getAllResults().then(value => { results.value = value })
+}
+
+let stopChanges = null
 onMounted(async () => {
   await refresh()
-  onChanged(() => { refresh() })
+  stopChanges = onChanged(applyStorageChanges)
 })
+onBeforeUnmount(() => { stopChanges?.() })
 
 function openDashboard () {
   browser.tabs.create({ url: browser.runtime.getURL('dashboard.html') })
@@ -89,6 +133,16 @@ function loadText (host) {
         >{{ label(host) }}</span>
         <span class="popup-load">{{ loadText(host) }}</span>
       </div>
+      <div
+        v-for="group in nonEmptyFeedGroups"
+        :key="group.id"
+        class="host-row"
+        @click="openDashboard"
+      >
+        <span class="feed-dot">RSS</span>
+        <span class="name">{{ group.name }}</span>
+        <span class="popup-load">{{ feedSources.filter(source => source.groupId === group.id).length }} feeds</span>
+      </div>
     </div>
   </div>
 
@@ -118,6 +172,13 @@ function loadText (host) {
         </button>
         <button
           class="tab"
+          :class="{ active: tab === 'feeds' }"
+          @click="tab = 'feeds'"
+        >
+          Feeds
+        </button>
+        <button
+          class="tab"
           :class="{ active: tab === 'settings' }"
           @click="tab = 'settings'"
         >
@@ -125,12 +186,15 @@ function loadText (host) {
         </button>
       </div>
       <span class="spacer" />
-      <span class="popup-load">{{ hosts.length }} sites</span>
+      <span class="popup-load">{{ hosts.length }} sites · {{ nonEmptyFeedGroups.length }} feed groups</span>
     </div>
 
     <MonitorGrid
       v-show="tab === 'monitor'"
       :hosts="hosts"
+      :feed-groups="feedGroups"
+      :feed-sources="feedSources"
+      :feed-caches="feedCaches"
       :results="results"
       :settings="settings"
     />
@@ -141,6 +205,12 @@ function loadText (host) {
       <HostList
         :hosts="hosts"
         :results="results"
+      />
+    </div>
+    <div v-show="tab === 'feeds'">
+      <FeedList
+        :groups="feedGroups"
+        :sources="feedSources"
       />
     </div>
     <div v-show="tab === 'settings'">

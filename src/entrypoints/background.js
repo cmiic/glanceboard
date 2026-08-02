@@ -3,7 +3,10 @@ import { browser } from '@/lib/browser.js'
 import { stripFramingHeaders, isFromOwnExtension, isApprovedTarget } from '@/lib/headers.js'
 import { checkHost } from '@/lib/monitor.js'
 import { stepDelay, delayUntilSlot } from '@/lib/schedule.js'
-import { getHosts, getSettings, pushResult, ensureSeeded, migrateResultsToPerKey, entryOrigin, entryLabel } from '@/lib/storage.js'
+import {
+  getHosts, getSettings, pushResult, ensureSeeded, migrateResultsToPerKey,
+  reconcileOriginPermissions, entryOrigin, entryLabel
+} from '@/lib/storage.js'
 
 // Firefox MV2 persistent background page. WXT imports this file in Node at build time to read the
 // entrypoint options, so ALL runtime code must live inside main() — only imports stay at the top.
@@ -150,6 +153,7 @@ export default defineBackground({
       browser.permissions.onRemoved.addListener(registerWebRequest)
       await ensureSeeded()
       await migrateResultsToPerKey() // one-time upgrade from the legacy monolithic `results` object
+      await reconcileOriginPermissions()
       const settings = await getSettings()
       await scheduleChecks(settings)
       if ((Number(settings.intervalMinutes) || 0) >= 1) {

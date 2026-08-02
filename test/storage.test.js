@@ -6,6 +6,9 @@ import assert from 'node:assert/strict'
 // `data` object so the binding captured below stays valid across tests.
 const data = {}
 const revokedOrigins = []
+const grantedOrigins = []
+const storageSetCalls = []
+let afterStorageSet = null
 globalThis.browser = {
   storage: {
     local: {
@@ -14,19 +17,39 @@ globalThis.browser = {
         if (typeof key === 'string') return key in data ? { [key]: data[key] } : {}
         return {}
       },
-      async set (obj) { Object.assign(data, obj) },
+      // Firefox storage structured-clones values and rejects Proxy objects. Mirroring that here
+      // catches reactive Vue data accidentally crossing the persistence boundary.
+      async set (obj) {
+        storageSetCalls.push(Object.keys(obj))
+        Object.assign(data, structuredClone(obj))
+        if (afterStorageSet) await afterStorageSet(obj)
+      },
       async remove (key) { for (const k of (Array.isArray(key) ? key : [key])) delete data[k] }
     },
     onChanged: { addListener () {}, removeListener () {} }
   },
   permissions: {
-    async remove ({ origins }) { revokedOrigins.push(...(origins || [])); return true }
+    async getAll () { return { origins: [...grantedOrigins] } },
+    async remove ({ origins }) {
+      revokedOrigins.push(...(origins || []))
+      for (const origin of origins || []) {
+        const index = grantedOrigins.indexOf(origin)
+        if (index >= 0) grantedOrigins.splice(index, 1)
+      }
+      return true
+    }
   }
 }
 
 const storage = await import('../src/lib/storage.js')
 
-beforeEach(() => { for (const k of Object.keys(data)) delete data[k]; revokedOrigins.length = 0 })
+beforeEach(() => {
+  for (const k of Object.keys(data)) delete data[k]
+  revokedOrigins.length = 0
+  grantedOrigins.length = 0
+  storageSetCalls.length = 0
+  afterStorageSet = null
+})
 
 test('addHost: dedupes identical entries and applies metric defaults', async () => {
   await storage.setSettings({ metricDefaults: { cert: true, load: false } })
@@ -94,6 +117,158 @@ test('removeHost: keeps the permission while another host shares the origin patt
   assert.deepEqual(revokedOrigins, []) // still needed by localhost:3000
   await storage.removeHost('http://localhost:3000')
   assert.deepEqual(revokedOrigins, ['http://localhost/*']) // now revoked
+})
+
+test('feed groups: create, rename, enforce unique names and move sources', async () => {
+  const first = await storage.createFeedGroup('Security')
+  const second = await storage.createFeedGroup('Fun')
+  await assert.rejects(storage.createFeedGroup(' security '), /already exists/)
+  const writesBeforeUnknownMove = storageSetCalls.length
+  await assert.rejects(storage.moveFeedSource('rss:https://missing.example/feed', first.id), /Feed source not found/)
+  assert.equal(storageSetCalls.length, writesBeforeUnknownMove)
+  await storage.addFeedSources([{ url: 'https://example.com/feed', title: 'Example' }], { groupId: first.id })
+  let sources = await storage.getFeedSources()
+  assert.equal(sources[0].id, 'rss:https://example.com/feed')
+  assert.equal(sources[0].groupId, first.id)
+  assert.deepEqual(sources[0].display, { showImage: true, showDescription: true, descriptionMaxChars: 240 })
+  await storage.setFeedSourceDisplay(sources[0].id, { showImage: false, descriptionMaxChars: 90 })
+  sources = await storage.getFeedSources()
+  assert.deepEqual(sources[0].display, { showImage: false, showDescription: true, descriptionMaxChars: 90 })
+  await storage.moveFeedSource(sources[0].id, second.id)
+  sources = await storage.getFeedSources()
+  assert.equal(sources[0].groupId, second.id)
+  await storage.renameFeedGroup(second.id, 'Entertainment')
+  assert.equal((await storage.getFeedGroups()).find(group => group.id === second.id).name, 'Entertainment')
+})
+
+test('addFeedSources reports when its selected group was deleted', async () => {
+  await assert.rejects(storage.addFeedSources([
+    { url: 'https://example.com/feed' }
+  ], { groupId: 'feed-group:deleted' }), /Feed group not found/)
+  assert.deepEqual(await storage.getFeedSources(), [])
+  assert.deepEqual(await storage.getFeedGroups(), [])
+})
+
+test('Site + RSS + group commit together and a duplicate feed does not create an empty group', async () => {
+  await storage.setSettings({ metricDefaults: { cert: true, load: false } })
+  await storage.addSiteAndFeedSources({
+    siteInput: 'example.com/news',
+    feeds: [{ type: 'rss', url: 'https://feeds.example.com/news.xml', title: 'Example News', cache: { items: [{ id: '1' }] } }],
+    groupName: 'News'
+  })
+  assert.equal((await storage.getHosts())[0].id, 'https://example.com/news')
+  assert.deepEqual((await storage.getHosts())[0].metrics, { cert: true, load: false })
+  assert.equal((await storage.getFeedGroups())[0].name, 'News')
+  assert.equal((await storage.getFeedSources())[0].groupId, (await storage.getFeedGroups())[0].id)
+  assert.equal(Object.keys(await storage.getAllFeedCaches()).length, 1)
+
+  await storage.addSiteAndFeedSources({
+    siteInput: 'second.example.com',
+    feeds: [{ type: 'rss', url: 'https://feeds.example.com/news.xml' }],
+    groupName: 'Would be empty'
+  })
+  assert.equal((await storage.getHosts()).length, 2)
+  assert.equal((await storage.getFeedGroups()).length, 1)
+})
+
+test('feed cache writes unwrap reactive Proxy objects before Firefox storage', async () => {
+  const group = await storage.createFeedGroup('Proxied')
+  const cache = new Proxy({
+    channel: new Proxy({ title: 'Proxy News' }, {}),
+    items: [new Proxy({ id: 'one', title: 'Headline' }, {})]
+  }, {})
+  await storage.addFeedSources([{ url: 'https://example.com/feed', cache }], { groupId: group.id })
+  let stored = (await storage.getAllFeedCaches())['rss:https://example.com/feed']
+  assert.deepEqual(stored, { channel: { title: 'Proxy News' }, items: [{ id: 'one', title: 'Headline' }] })
+
+  await storage.setFeedCache('rss:https://example.com/feed', new Proxy({ channel: null, items: [] }, {}))
+  stored = (await storage.getAllFeedCaches())['rss:https://example.com/feed']
+  assert.deepEqual(stored, { channel: null, items: [] })
+})
+
+test('setFeedCaches persists a whole refreshed group in one storage write', async () => {
+  const before = storageSetCalls.length
+  await storage.setFeedCaches({
+    a: new Proxy({ channel: { title: 'A' }, items: [] }, {}),
+    b: new Proxy({ channel: { title: 'B' }, items: [] }, {})
+  })
+  assert.equal(storageSetCalls.length - before, 1)
+  assert.deepEqual(new Set(storageSetCalls.at(-1)), new Set(['feed-cache:a', 'feed-cache:b']))
+})
+
+test('setFeedCachesForExistingSources cannot resurrect a removed feed cache', async () => {
+  const group = await storage.createFeedGroup('News')
+  const { added } = await storage.addFeedSources([{ url: 'https://example.com/feed' }], { groupId: group.id })
+  const sourceId = added[0].id
+  afterStorageSet = async writes => {
+    if (`feed-cache:${sourceId}` in writes) data.feedSources = []
+  }
+  const written = await storage.setFeedCachesForExistingSources({
+    [sourceId]: { channel: { title: 'Late' }, items: [] },
+    'rss:https://missing.example/feed': { channel: { title: 'Missing' }, items: [] }
+  })
+  afterStorageSet = null
+  assert.deepEqual(written, {})
+  assert.deepEqual(await storage.getAllFeedCaches(), {})
+})
+
+test('startup permission reconciliation removes only orphaned exact origins', async () => {
+  const group = await storage.createFeedGroup('News')
+  await storage.addHost('https://saved.example')
+  await storage.addFeedSources([{ url: 'https://feeds.example/news.xml' }], { groupId: group.id })
+  grantedOrigins.push(
+    'https://saved.example/*',
+    'https://feeds.example/*',
+    'https://audioapi.orf.at/*',
+    'https://*/*'
+  )
+
+  const removed = await storage.reconcileOriginPermissions()
+  assert.deepEqual(removed, ['https://audioapi.orf.at/*'])
+  assert.deepEqual(revokedOrigins, ['https://audioapi.orf.at/*'])
+  assert.deepEqual(grantedOrigins, [
+    'https://saved.example/*',
+    'https://feeds.example/*',
+    'https://*/*'
+  ])
+})
+
+test('site and feed permission references do not revoke each other', async () => {
+  const group = await storage.createFeedGroup('Example')
+  await storage.addHost('example.com')
+  await storage.addFeedSources([{ url: 'https://example.com/feed' }], { groupId: group.id })
+  await storage.removeHost('https://example.com')
+  assert.deepEqual(revokedOrigins, [])
+  await storage.removeFeedSource('rss:https://example.com/feed')
+  assert.deepEqual(revokedOrigins, ['https://example.com/*'])
+})
+
+test('removeFeedGroup deletes member caches and revokes no-longer-used origins', async () => {
+  const group = await storage.createFeedGroup('News')
+  const added = await storage.addFeedSources([
+    { url: 'https://a.com/feed', cache: { items: [{ id: '1' }] } },
+    { url: 'https://b.com/feed', cache: { items: [{ id: '2' }] } }
+  ], { groupId: group.id })
+  assert.equal(Object.keys(await storage.getAllFeedCaches()).length, 2)
+  await storage.removeFeedGroup(group.id)
+  assert.deepEqual(await storage.getFeedSources(), [])
+  assert.deepEqual(await storage.getAllFeedCaches(), {})
+  assert.deepEqual(new Set(revokedOrigins), new Set(['https://a.com/*', 'https://b.com/*']))
+  assert.equal(added.added.length, 2)
+})
+
+test('mixed tile layouts persist and reset across hosts and feed groups', async () => {
+  await storage.addHost('example.com')
+  const group = await storage.createFeedGroup('News')
+  await storage.setTileLayouts({
+    'https://example.com': { x: 1, y: 2, w: 3, h: 4 },
+    [group.id]: { x: 5, y: 6, w: 7, h: 8 }
+  })
+  assert.deepEqual((await storage.getHosts())[0].layout, { x: 1, y: 2, w: 3, h: 4 })
+  assert.deepEqual((await storage.getFeedGroups())[0].layout, { x: 5, y: 6, w: 7, h: 8 })
+  await storage.resetTileLayouts()
+  assert.equal((await storage.getHosts())[0].layout, undefined)
+  assert.equal((await storage.getFeedGroups())[0].layout, undefined)
 })
 
 test('pushResult: newest-first, capped, sticky cert', async () => {

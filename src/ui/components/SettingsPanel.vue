@@ -1,8 +1,13 @@
 <script setup>
 import { ref, watch } from 'vue'
 import { browser } from '@/lib/browser.js'
-import { setSettings, getHosts, addHost, setAllHostsMetric, resetHostLayouts } from '@/lib/storage.js'
+import {
+  setSettings, getHosts, addHost, setAllHostsMetric, resetTileLayouts,
+  getFeedGroups, getFeedSources, createFeedGroup, addFeedSources
+} from '@/lib/storage.js'
 import { normalizeTarget } from '@/lib/url.js'
+import { buildExportDocument, normalizeImportFeed, parseImportDocument } from '@/lib/backup.js'
+import { feedGroupNameKey } from '@/lib/feed-settings.js'
 
 const props = defineProps({ settings: { type: Object, default: () => ({}) } })
 
@@ -37,7 +42,7 @@ function applyAll (key, value) { setAllHostsMetric(key, value) }
 // Drops the whole arrangement: position AND size, since a tile's layout is one { x, y, w, h }.
 const layoutReset = ref(false)
 async function resetLayout () {
-  await resetHostLayouts()
+  await resetTileLayouts()
   layoutReset.value = true
   setTimeout(() => { layoutReset.value = false }, 2000)
 }
@@ -54,18 +59,19 @@ async function copyUrl () {
   } catch { /* clipboard may be unavailable */ }
 }
 
-// ---- export / import host list ----
+// ---- export / import sites and feeds ----
 const pending = ref(null)
 const importError = ref('')
 const importNotice = ref('')
 
 async function exportHosts () {
-  const hosts = await getHosts()
-  const blob = new Blob([JSON.stringify({ hosts: hosts.map(h => h.url) }, null, 2)], { type: 'application/json' })
+  const [hosts, groups, sources] = await Promise.all([getHosts(), getFeedGroups(), getFeedSources()])
+  const backup = buildExportDocument(hosts, groups, sources)
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = 'glanceboard-hosts.json'
+  a.download = 'glanceboard-data.json'
   a.click()
   // Defer the revoke so it doesn't abort the download before it starts.
   setTimeout(() => URL.revokeObjectURL(url), 10000)
@@ -81,10 +87,9 @@ function onFile (e) {
   reader.onload = () => {
     try {
       const parsed = JSON.parse(String(reader.result))
-      const list = Array.isArray(parsed) ? parsed : parsed.hosts
-      const urls = (list || []).map(h => (typeof h === 'string' ? h : h?.url)).filter(Boolean)
-      if (!urls.length) { importError.value = 'No sites found in file'; pending.value = null; return }
-      pending.value = urls
+      const { sites, feedGroups } = parseImportDocument(parsed)
+      if (!sites.length && !feedGroups.length) { importError.value = 'No sites or feed groups found in file'; pending.value = null; return }
+      pending.value = { sites, feedGroups }
     } catch {
       importError.value = 'Invalid JSON file'
       pending.value = null
@@ -94,19 +99,37 @@ function onFile (e) {
 }
 
 async function doImport () {
-  if (!pending.value?.length) return
-  const valid = pending.value.filter(u => normalizeTarget(u))
-  const skipped = pending.value.length - valid.length
-  if (!valid.length) { importError.value = 'No valid sites found in the file'; return }
-  // Pages of the same host collapse to one origin pattern, so the prompt asks only once per host.
-  const origins = [...new Set(valid.map(u => normalizeTarget(u).originPattern))]
+  if (!pending.value) return
+  const validSites = pending.value.sites.filter(url => normalizeTarget(url))
+  const validGroups = pending.value.feedGroups.map(group => ({
+    ...group,
+    feeds: group.feeds.map(normalizeImportFeed).filter(Boolean)
+  }))
+  const feedCount = validGroups.reduce((count, group) => count + group.feeds.length, 0)
+  const skipped = pending.value.sites.length - validSites.length +
+    pending.value.feedGroups.reduce((count, group) => count + group.feeds.length, 0) - feedCount
+  if (!validSites.length && !validGroups.length) { importError.value = 'No valid sites or feeds found in the file'; return }
+  const origins = [...new Set([
+    ...validSites.map(url => normalizeTarget(url).originPattern),
+    ...validGroups.flatMap(group => group.feeds.map(feed => normalizeTarget(feed.url).originPattern))
+  ])]
   try {
-    // One permission prompt for all imported origins (button click keeps the user gesture).
-    const granted = await browser.permissions.request({ origins })
-    if (!granted) { importError.value = 'Permission is needed to monitor imported sites'; return }
-    for (const u of valid) await addHost(u).catch(() => {})
+    const granted = !origins.length || await browser.permissions.request({ origins })
+    if (!granted) { importError.value = 'Permission is needed to import these sites and feeds'; return }
+    for (const url of validSites) await addHost(url).catch(() => {})
+    let currentGroups = await getFeedGroups()
+    for (const imported of validGroups) {
+      const importedNameKey = feedGroupNameKey(imported.name)
+      let group = currentGroups.find(item => feedGroupNameKey(item.name) === importedNameKey)
+      if (!group) {
+        group = await createFeedGroup(imported.name)
+        currentGroups = await getFeedGroups()
+      }
+      if (imported.feeds.length) await addFeedSources(imported.feeds, { groupId: group.id })
+    }
     importError.value = ''
-    importNotice.value = `Imported ${valid.length} site(s)` + (skipped ? `; skipped ${skipped} invalid` : '')
+    importNotice.value = `Imported ${validSites.length} site(s), ${feedCount} feed(s), and ${validGroups.length} group(s)` +
+      (skipped ? `; skipped ${skipped} invalid` : '')
     pending.value = null
   } catch (e) {
     importError.value = e?.message || String(e)
@@ -363,7 +386,7 @@ async function doImport () {
     </div>
 
     <div class="card setting">
-      <label class="setting-label">Sites</label>
+      <label class="setting-label">Sites and feeds</label>
       <div class="field">
         <button
           class="btn"
@@ -389,7 +412,8 @@ async function doImport () {
           class="btn btn-primary"
           @click="doImport"
         >
-          Grant &amp; import {{ pending.length }} site(s)
+          Grant &amp; import {{ pending.sites.length }} site(s) and
+          {{ pending.feedGroups.reduce((count, group) => count + group.feeds.length, 0) }} feed(s)
         </button>
       </div>
       <span
