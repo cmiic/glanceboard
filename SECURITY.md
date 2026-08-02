@@ -13,6 +13,8 @@ settings, and check results live only in the extension's local storage, and noth
   origin only when you add (or import) a website or feed — it does **not** request access to all sites
   by default. Feed discovery may require a second exact-origin prompt when a page advertises a feed on
   another host. Permissions are retained while any saved site or feed needs them and revoked afterward.
+  Discovery-only grants are removed when the add flow ends; if its tab is closed mid-flow, background
+  startup reconciles granted exact origins against saved sites and feeds and removes any orphaned grants.
 - **Adding a single page still grants the whole host.** You can monitor one page (`example.com/status`)
   rather than a site root, but the permission Firefox grants — and therefore the framing-header stripping
   described below — applies to that page's entire origin, not just its path. Adding a page is exactly as

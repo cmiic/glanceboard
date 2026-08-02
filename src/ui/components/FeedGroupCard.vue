@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { cacheWithError, mergeFeedItems, truncateFeedDescription } from '@/lib/rss.js'
 import { getFeedAdapter } from '@/lib/feed-adapters.js'
-import { setFeedCaches } from '@/lib/storage.js'
+import { setFeedCachesForExistingSources } from '@/lib/storage.js'
 import { feedSourceDisplay } from '@/lib/feed-settings.js'
 
 const props = defineProps({
@@ -78,7 +78,9 @@ async function loadFeeds () {
         runError.value = error?.message || String(error)
       }
     }
-    await setFeedCaches(updates)
+    const currentIds = new Set(props.sources.map(source => source.id))
+    const currentUpdates = Object.fromEntries(Object.entries(updates).filter(([id]) => currentIds.has(id)))
+    await setFeedCachesForExistingSources(currentUpdates)
   } catch (error) {
     runError.value = error?.message || String(error)
   } finally {

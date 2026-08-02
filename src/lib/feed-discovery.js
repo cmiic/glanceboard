@@ -64,7 +64,8 @@ export function discoverFromHtml (html, pageUrl, Parser = globalThis.DOMParser) 
   const found = []
   for (const link of Array.from(document.querySelectorAll('link[rel][href]'))) {
     const rels = String(link.getAttribute('rel') || '').toLowerCase().split(/\s+/)
-    if (!rels.includes('alternate') || String(link.getAttribute('type') || '').toLowerCase() !== 'application/rss+xml') continue
+    if (!rels.includes('alternate') || rels.includes('stylesheet') ||
+        String(link.getAttribute('type') || '').toLowerCase() !== 'application/rss+xml') continue
     const url = normalizeHttpUrl(link.getAttribute('href'), pageUrl)
     const item = candidate(url, link.getAttribute('title'))
     if (item) found.push(item)
@@ -169,8 +170,15 @@ export async function inspectTarget (pageUrl, {
   const body = await readBoundedResponseText(response)
   let directError
   try {
+    // readBoundedResponseText has already decoded the original bytes. A synthetic Response encodes
+    // this JS string as UTF-8, so its metadata must say UTF-8 too; forwarding an ISO-8859-1 charset
+    // would make the RSS adapter decode those new UTF-8 bytes a second time as legacy text.
+    const directHeaders = new Headers(response.headers)
+    const mediaType = contentType.split(';')[0].trim() || 'application/xml'
+    directHeaders.set('content-type', `${mediaType}; charset=utf-8`)
+    directHeaders.delete('content-length')
     const direct = await getFeedAdapter('rss').refresh(response.url || pageUrl, {
-      fetchImpl: async () => new Response(body, { status: 200, headers: response.headers }), Parser
+      fetchImpl: async () => new Response(body, { status: 200, headers: directHeaders }), Parser
     })
     return { kind: 'feed', pageUrl: response.url || pageUrl, candidates: [{ type: 'rss', url: direct.url, title: direct.cache.channel.title, validated: direct.cache }] }
   } catch (error) {

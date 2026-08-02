@@ -6,7 +6,9 @@ import assert from 'node:assert/strict'
 // `data` object so the binding captured below stays valid across tests.
 const data = {}
 const revokedOrigins = []
+const grantedOrigins = []
 const storageSetCalls = []
+let afterStorageSet = null
 globalThis.browser = {
   storage: {
     local: {
@@ -20,13 +22,22 @@ globalThis.browser = {
       async set (obj) {
         storageSetCalls.push(Object.keys(obj))
         Object.assign(data, structuredClone(obj))
+        if (afterStorageSet) await afterStorageSet(obj)
       },
       async remove (key) { for (const k of (Array.isArray(key) ? key : [key])) delete data[k] }
     },
     onChanged: { addListener () {}, removeListener () {} }
   },
   permissions: {
-    async remove ({ origins }) { revokedOrigins.push(...(origins || [])); return true }
+    async getAll () { return { origins: [...grantedOrigins] } },
+    async remove ({ origins }) {
+      revokedOrigins.push(...(origins || []))
+      for (const origin of origins || []) {
+        const index = grantedOrigins.indexOf(origin)
+        if (index >= 0) grantedOrigins.splice(index, 1)
+      }
+      return true
+    }
   }
 }
 
@@ -35,7 +46,9 @@ const storage = await import('../src/lib/storage.js')
 beforeEach(() => {
   for (const k of Object.keys(data)) delete data[k]
   revokedOrigins.length = 0
+  grantedOrigins.length = 0
   storageSetCalls.length = 0
+  afterStorageSet = null
 })
 
 test('addHost: dedupes identical entries and applies metric defaults', async () => {
@@ -128,6 +141,14 @@ test('feed groups: create, rename, enforce unique names and move sources', async
   assert.equal((await storage.getFeedGroups()).find(group => group.id === second.id).name, 'Entertainment')
 })
 
+test('addFeedSources reports when its selected group was deleted', async () => {
+  await assert.rejects(storage.addFeedSources([
+    { url: 'https://example.com/feed' }
+  ], { groupId: 'feed-group:deleted' }), /Feed group not found/)
+  assert.deepEqual(await storage.getFeedSources(), [])
+  assert.deepEqual(await storage.getFeedGroups(), [])
+})
+
 test('Site + RSS + group commit together and a duplicate feed does not create an empty group', async () => {
   await storage.setSettings({ metricDefaults: { cert: true, load: false } })
   await storage.addSiteAndFeedSources({
@@ -173,6 +194,43 @@ test('setFeedCaches persists a whole refreshed group in one storage write', asyn
   })
   assert.equal(storageSetCalls.length - before, 1)
   assert.deepEqual(new Set(storageSetCalls.at(-1)), new Set(['feed-cache:a', 'feed-cache:b']))
+})
+
+test('setFeedCachesForExistingSources cannot resurrect a removed feed cache', async () => {
+  const group = await storage.createFeedGroup('News')
+  const { added } = await storage.addFeedSources([{ url: 'https://example.com/feed' }], { groupId: group.id })
+  const sourceId = added[0].id
+  afterStorageSet = async writes => {
+    if (`feed-cache:${sourceId}` in writes) data.feedSources = []
+  }
+  const written = await storage.setFeedCachesForExistingSources({
+    [sourceId]: { channel: { title: 'Late' }, items: [] },
+    'rss:https://missing.example/feed': { channel: { title: 'Missing' }, items: [] }
+  })
+  afterStorageSet = null
+  assert.deepEqual(written, {})
+  assert.deepEqual(await storage.getAllFeedCaches(), {})
+})
+
+test('startup permission reconciliation removes only orphaned exact origins', async () => {
+  const group = await storage.createFeedGroup('News')
+  await storage.addHost('https://saved.example')
+  await storage.addFeedSources([{ url: 'https://feeds.example/news.xml' }], { groupId: group.id })
+  grantedOrigins.push(
+    'https://saved.example/*',
+    'https://feeds.example/*',
+    'https://audioapi.orf.at/*',
+    'https://*/*'
+  )
+
+  const removed = await storage.reconcileOriginPermissions()
+  assert.deepEqual(removed, ['https://audioapi.orf.at/*'])
+  assert.deepEqual(revokedOrigins, ['https://audioapi.orf.at/*'])
+  assert.deepEqual(grantedOrigins, [
+    'https://saved.example/*',
+    'https://feeds.example/*',
+    'https://*/*'
+  ])
 })
 
 test('site and feed permission references do not revoke each other', async () => {

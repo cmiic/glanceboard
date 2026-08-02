@@ -10,7 +10,7 @@ import { MAX_RSS_BYTES } from '../src/lib/rss.js'
 const rss = '<rss version="2.0"><channel><title>News</title><item><title>Hello</title><link>https://example.com/hello</link></item></channel></rss>'
 
 test('HTML and Link header discovery resolve and dedupe RSS alternates', () => {
-  const html = '<link rel="alternate stylesheet" type="application/rss+xml" title="News" href="/feed"><link rel="alternate" type="application/atom+xml" href="/atom">'
+  const html = '<link rel="alternate stylesheet" type="application/rss+xml" title="Theme" href="/theme-feed"><link rel="alternate" type="application/rss+xml" title="News" href="/feed"><link rel="alternate" type="application/atom+xml" href="/atom">'
   assert.deepEqual(discoverFromHtml(html, 'https://example.com/blog', DOMParser), [
     { type: 'rss', url: 'https://example.com/feed', title: 'News' }
   ])
@@ -82,6 +82,20 @@ test('inspectTarget: recognizes a directly entered RSS document', async () => {
   assert.equal(result.kind, 'feed')
   assert.equal(result.candidates[0].title, 'News')
   assert.ok(result.candidates[0].validated)
+})
+
+test('inspectTarget: preserves non-UTF-8 text in a directly entered RSS document', async () => {
+  const legacy = '<?xml version="1.0" encoding="iso-8859-1"?><rss version="2.0"><channel><title>Österreich</title></channel></rss>'
+  const bytes = Uint8Array.from(legacy, character => character.charCodeAt(0))
+  const result = await inspectTarget('https://example.com/legacy.xml', {
+    Parser: DOMParser,
+    fetchImpl: async () => new Response(bytes, {
+      headers: { 'content-type': 'application/rss+xml; charset=iso-8859-1' }
+    }),
+    includeOrf: false
+  })
+  assert.equal(result.kind, 'feed')
+  assert.equal(result.candidates[0].title, 'Österreich')
 })
 
 test('inspectTarget: recognizes direct RSS 1.0 served as generic XML', async () => {

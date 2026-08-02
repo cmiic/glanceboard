@@ -58,6 +58,16 @@ test('parseRss: supports RSS 1.0/RDF feeds such as rss.orf.at', () => {
   assert.equal(parsed.items[0].publishedAt, Date.parse('2026-08-02T12:00:00+02:00'))
 })
 
+test('parseRss: Atom self-links do not shadow RSS channel and item links', () => {
+  const wordpress = `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel>
+    <title>WordPress</title><atom:link href="https://example.com/feed" rel="self"/><link>https://example.com/</link>
+    <item><guid isPermaLink="false">one</guid><title>Post</title><atom:link href="https://example.com/feed#one"/><link>/post</link></item>
+  </channel></rss>`
+  const parsed = parseRss(wordpress, { url: 'https://example.com/feed', Parser: DOMParser })
+  assert.equal(parsed.channel.url, 'https://example.com/')
+  assert.equal(parsed.items[0].url, 'https://example.com/post')
+})
+
 test('parseRss: extracts plain-text descriptions and safe item images', () => {
   const rich = `<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"
     xmlns:content="http://purl.org/rss/1.0/modules/content/"

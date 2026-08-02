@@ -31,6 +31,18 @@ function childText (node, localName) {
   return firstChild(node, localName)?.textContent?.trim() || ''
 }
 
+// Namespace-agnostic matching is useful for RSS modules, but atom:link also has localName "link".
+// RSS links carry their URL as text; skip href-based and empty elements so an Atom self-link cannot
+// mask the later channel/item <link> element.
+function childLinkText (node) {
+  for (const child of directChildren(node, 'link')) {
+    if (child.getAttribute?.('href')) continue
+    const value = child.textContent?.trim()
+    if (value) return value
+  }
+  return ''
+}
+
 function safeDate (value) {
   if (!value) return null
   const timestamp = Date.parse(value)
@@ -119,7 +131,7 @@ export function parseRss (xml, { url, Parser = globalThis.DOMParser } = {}) {
   if (!channelNode) throw new Error('RSS channel is missing')
 
   const channelTitle = childText(channelNode, 'title') || new URL(url).hostname
-  const channelLink = normalizeHttpUrl(childText(channelNode, 'link'), url)
+  const channelLink = normalizeHttpUrl(childLinkText(channelNode), url)
   const seen = new Set()
   const items = []
 
@@ -129,7 +141,7 @@ export function parseRss (xml, { url, Parser = globalThis.DOMParser } = {}) {
     const guidNode = firstChild(itemNode, 'guid')
     const rdfAbout = itemNode.getAttribute?.('rdf:about') || itemNode.getAttributeNS?.(RDF_NAMESPACE, 'about') || ''
     const guid = guidNode?.textContent?.trim() || rdfAbout
-    let link = normalizeHttpUrl(childText(itemNode, 'link'), url)
+    let link = normalizeHttpUrl(childLinkText(itemNode), url)
     if (!link && guid && guidNode?.getAttribute?.('isPermaLink') !== 'false') link = normalizeHttpUrl(guid, url)
     const publishedAt = safeDate(childText(itemNode, 'pubDate') || childText(itemNode, 'date'))
     const descriptionMarkup = childText(itemNode, 'description') || childText(itemNode, 'encoded')

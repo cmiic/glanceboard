@@ -16,3 +16,14 @@ export function feedSourceDisplay (source) {
     descriptionMaxChars
   }
 }
+
+// Adopt cross-tab renames while preserving a local, unsaved edit. previousNames records the last
+// storage value each draft was based on, so matching drafts are safe to replace with the new name.
+export function syncFeedGroupDrafts (groups, drafts = {}, previousNames = {}) {
+  const next = {}
+  for (const group of groups || []) {
+    const draft = drafts[group.id]
+    next[group.id] = draft == null || draft === previousNames[group.id] ? group.name : draft
+  }
+  return next
+}

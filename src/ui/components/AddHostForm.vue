@@ -154,6 +154,19 @@ async function confirmSelection () {
     error.value = 'Enter a feed group name'; return
   }
 
+  if (wantsFeeds.value && groupChoice.value !== '__new__') {
+    const currentGroups = await getFeedGroups()
+    if (!currentGroups.some(group => group.id === groupChoice.value)) {
+      groups.value = currentGroups
+      groupChoice.value = '__new__'
+      const first = selected[0]
+      groupName.value = suggestGroupName(first?.title || 'Feed group', currentGroups)
+      error.value = 'The selected feed group was deleted. Choose another group or create a new one.'
+      return
+    }
+    groups.value = currentGroups
+  }
+
   busy.value = true
   try {
     if (wantsFeeds.value) {

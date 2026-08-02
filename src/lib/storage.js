@@ -107,6 +107,25 @@ export async function setFeedCache (sourceId, cache) {
   return (await setFeedCaches({ [sourceId]: cache }))[sourceId]
 }
 
+// A feed can be removed while its in-flight refresh is still finishing. Filter immediately before
+// the write, then check again afterward to cover either ordering of the storage operations. The
+// normal removal path also deletes its cache, so no interleaving can leave an orphan behind.
+export async function setFeedCachesForExistingSources (cachesBySourceId) {
+  const requested = cachesBySourceId || {}
+  const existingBefore = new Set((await getFeedSources()).map(source => source.id))
+  const current = Object.fromEntries(Object.entries(requested).filter(([id]) => existingBefore.has(id)))
+  const written = await setFeedCaches(current)
+  if (!Object.keys(written).length) return written
+
+  const existingAfter = new Set((await getFeedSources()).map(source => source.id))
+  const orphaned = Object.keys(written).filter(id => !existingAfter.has(id))
+  if (orphaned.length) {
+    await browser.storage.local.remove(orphaned.map(id => FEED_CACHE_PREFIX + id))
+    for (const id of orphaned) delete written[id]
+  }
+  return written
+}
+
 function originPattern (url) {
   return normalizeTarget(url)?.originPattern || null
 }
@@ -116,6 +135,25 @@ export function requiredOriginPatterns (hosts, sources) {
     ...(hosts || []).map(item => originPattern(item.url)),
     ...(sources || []).map(item => originPattern(item.url))
   ].filter(Boolean))
+}
+
+// Discovery grants are normally cleaned up by the add form. If its tab is closed mid-flow there is
+// no reliable unload hook, so background startup reconciles every exact HTTP(S) origin permission
+// against persisted sites and feeds. Broad wildcard permissions are deliberately left untouched.
+export async function reconcileOriginPermissions () {
+  if (!browser.permissions?.getAll || !browser.permissions?.remove) return []
+  const [hosts, sources, permissions] = await Promise.all([
+    getHosts(), getFeedSources(), browser.permissions.getAll()
+  ])
+  const required = requiredOriginPatterns(hosts, sources)
+  const orphaned = (permissions?.origins || []).filter(pattern =>
+    /^https?:\/\/[^*/]+\/\*$/i.test(pattern) && !required.has(pattern))
+  if (!orphaned.length) return []
+  try {
+    return await browser.permissions.remove({ origins: orphaned }) ? orphaned : []
+  } catch {
+    return []
+  }
 }
 
 async function revokeOriginIfUnused (url, hosts, sources) {
@@ -201,6 +239,7 @@ export async function renameFeedGroup (id, name) {
 function buildFeedAddition (sources, groups, items, { groupId = null, groupName = '' } = {}) {
   let group = groupId ? groups.find(item => item.id === groupId) : null
   let nextGroups = groups
+  if (groupId && !group) throw new Error('Feed group not found')
   if (!group) {
     const clean = cleanGroupName(groupName)
     if (groupNameExists(groups, clean)) throw new Error('A feed group with this name already exists')

@@ -6,7 +6,7 @@ import {
   createFeedGroup, renameFeedGroup, removeFeedGroup, moveFeedSource, removeFeedSource,
   setFeedSourceDisplay
 } from '@/lib/storage.js'
-import { feedSourceDisplay } from '@/lib/feed-settings.js'
+import { feedSourceDisplay, syncFeedGroupDrafts } from '@/lib/feed-settings.js'
 import AddHostForm from './AddHostForm.vue'
 
 const props = defineProps({
@@ -19,11 +19,11 @@ const drafts = ref({})
 const error = ref('')
 const notice = ref('')
 const busyId = ref(null)
+let knownGroupNames = {}
 
 watch(() => props.groups, groups => {
-  const next = {}
-  for (const group of groups || []) next[group.id] = drafts.value[group.id] ?? group.name
-  drafts.value = next
+  drafts.value = syncFeedGroupDrafts(groups, drafts.value, knownGroupNames)
+  knownGroupNames = Object.fromEntries((groups || []).map(group => [group.id, group.name]))
 }, { immediate: true, deep: true })
 
 const sourcesByGroup = computed(() => {
