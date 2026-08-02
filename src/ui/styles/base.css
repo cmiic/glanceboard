@@ -113,6 +113,10 @@ a { color: var(--primary); }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-dim); flex: none; }
 .dot.ok { background: var(--ok); }
 .dot.bad { background: var(--danger); }
+.feed-dot {
+  flex: none; padding: 1px 4px; border-radius: 4px; background: var(--primary);
+  color: var(--primary-fg); font-size: 9px; font-weight: 700;
+}
 
 .popup { width: 340px; padding: 12px; }
 .popup .host-row { margin-bottom: 6px; padding: 6px 8px; cursor: pointer; }

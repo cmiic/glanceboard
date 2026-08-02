@@ -1,10 +1,9 @@
 # Glanceboard
 
-An at-a-glance **wall of live website previews**, as a Firefox extension. Add the sites — or the
-individual pages — you want to keep an eye on and Glanceboard shows them as a grid of live, scaled-down
-previews — handy for a quick visual check, or for periodically eyeballing sites that don't offer a feed
-or other update channel. You open it from the toolbar button (and can set it as your homepage — see
-below).
+An at-a-glance **wall of live website previews and grouped RSS headlines**, as a Firefox extension.
+Add the sites, individual pages, and feeds you want to keep an eye on. Glanceboard shows live pages
+beside compact headline groups — handy for a quick visual check without sending anything through a
+hosted service. You open it from the toolbar button (and can set it as your homepage — see below).
 
 It is deliberately **soft monitoring**: a quick human glance, not a real monitoring/alerting system.
 
@@ -18,6 +17,8 @@ It is deliberately **soft monitoring**: a quick human glance, not a real monitor
   their logged-in view. Works even on sites that normally forbid embedding (see Security).
 - **Sites or single pages.** Add `example.com` for the site root, or `example.com/status` to watch one
   page. Several pages of the same host are separate tiles with their own history.
+- **RSS discovery and groups.** When a page advertises an RSS feed, choose the website, the feed,
+  or both. Put several related feeds into one named tile and merge their newest headlines.
 - **Passive by default.** Out of the box Glanceboard makes **no background requests at all** — previews
   load only when you open the dashboard. Periodic background checks are strictly opt-in.
 - **Opt-in metrics.** Per site you can show **load time** and **TLS-certificate expiry**; both are hidden
@@ -44,6 +45,21 @@ security-sensitive headers). Firefox is also the only mainstream browser with ex
   changes size; the wall is a fixed number of columns whose width scales.
   **Settings → Reset tile layout** puts everything back to automatic.
 - **Android:** tiles render lazily as you scroll; tap a tile to open the site.
+
+## RSS feeds
+
+- Adding a site checks its RSS metadata and a small set of conventional feed paths. Direct RSS URLs
+  work too; supported ORF Sound podcast pages use ORF's public podcast metadata to find their feed.
+- A feed belongs to one group. Each non-empty group is one dashboard tile showing up to 30 headlines,
+  newest first, with source and publication date. Item artwork stays within the height of a two-line
+  headline, with the normalized plain-text description below it. Use the **Feeds** tab to show or hide
+  images and descriptions per feed and set an optional description character limit (`0` keeps all),
+  as well as to create or rename groups, move feeds, re-grant access, or remove them.
+- Feed data is fetched sequentially when the dashboard opens and when you press a feed tile's refresh
+  button. The latest 50 normalized items per feed are cached locally, so a temporary failure leaves
+  the previous headlines visible. Feeds are never polled in the background.
+- RSS 1.0 and 2.0 are supported in this release; Atom, JSON Feed, rendered HTML content, media playback,
+  and unread tracking are not yet supported.
 
 ## Known limitations
 
@@ -97,7 +113,8 @@ Publishing to AMO — build, submit, and the reviewer notes — is documented in
 - **Metrics** — default cert/load tile visibility for new sites, plus show/hide-all.
 - **Notifications** — local alert when a host goes down (only while checks are on).
 - **Card size** and **Layout** (auto / desktop / mobile).
-- **Export / Import** the site list as JSON (full URLs, so page entries round-trip).
+- **Export / Import** sites, RSS feeds, and feed-group membership as versioned JSON. Existing host-only
+  export files remain importable.
 
 ## Opening it / setting it as your home page
 

@@ -1,0 +1,141 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { DOMParser } from 'linkedom'
+import {
+  discoverFromHtml, discoverFromLinkHeader, discoverFromOrf, discoveryPermissionPatterns,
+  inspectTarget, defaultCandidateIds, orfDiscoveryRequest
+} from '../src/lib/feed-discovery.js'
+import { MAX_RSS_BYTES } from '../src/lib/rss.js'
+
+const rss = '<rss version="2.0"><channel><title>News</title><item><title>Hello</title><link>https://example.com/hello</link></item></channel></rss>'
+
+test('HTML and Link header discovery resolve and dedupe RSS alternates', () => {
+  const html = '<link rel="alternate stylesheet" type="application/rss+xml" title="News" href="/feed"><link rel="alternate" type="application/atom+xml" href="/atom">'
+  assert.deepEqual(discoverFromHtml(html, 'https://example.com/blog', DOMParser), [
+    { type: 'rss', url: 'https://example.com/feed', title: 'News' }
+  ])
+  assert.deepEqual(discoverFromLinkHeader('</feed>; rel="alternate"; type="application/rss+xml", </atom>; rel="alternate"; type="application/atom+xml"', 'https://example.com'), [
+    { type: 'rss', url: 'https://example.com/feed', title: '' }
+  ])
+})
+
+test('ORF adapter recognizes podcast pages and returns the API feed candidate', async () => {
+  const page = 'https://sound.orf.at/podcast/oe1/oe1-matrix'
+  assert.equal(orfDiscoveryRequest(page).apiUrl, 'https://audioapi.orf.at/radiothek/api/2.0/podcast/oe1/oe1-matrix')
+  assert.deepEqual(discoveryPermissionPatterns(page), ['https://audioapi.orf.at/*'])
+  const found = await discoverFromOrf(page, async () => ({
+    ok: true,
+    async json () { return { payload: { title: 'Ö1 matrix', urls: { feed: 'https://podcast.orf.at/matrix.xml' } } } }
+  }))
+  assert.deepEqual(found, [{ type: 'rss', url: 'https://podcast.orf.at/matrix.xml', title: 'Ö1 matrix' }])
+})
+
+test('inspectTarget: reports redirects before reading the page', async () => {
+  const result = await inspectTarget('https://example.com', {
+    Parser: DOMParser,
+    fetchImpl: async () => new Response(null, { status: 302, headers: { location: 'https://www.example.com/' } })
+  })
+  assert.deepEqual(result, { kind: 'redirect', url: 'https://www.example.com/' })
+})
+
+test('inspectTarget: captures Firefox opaque manual redirects through webRequest', async () => {
+  let listener = null
+  let removed = false
+  const webRequest = {
+    onBeforeRedirect: {
+      addListener (callback) { listener = callback },
+      removeListener (callback) { removed = callback === listener }
+    }
+  }
+  const result = await inspectTarget('https://example.com', {
+    Parser: DOMParser,
+    webRequest,
+    fetchImpl: async url => {
+      listener({ url, redirectUrl: 'https://www.example.com/landing' })
+      return { type: 'opaqueredirect', status: 0, ok: false, headers: new Headers() }
+    }
+  })
+  assert.deepEqual(result, { kind: 'redirect', url: 'https://www.example.com/landing' })
+  assert.equal(removed, true)
+})
+
+test('inspectTarget: rejects declared oversized responses before reading their body', async () => {
+  let bodyRead = false
+  await assert.rejects(inspectTarget('https://example.com/feed', {
+    Parser: DOMParser,
+    webRequest: null,
+    fetchImpl: async () => ({
+      type: 'basic', status: 200, ok: true, url: 'https://example.com/feed',
+      headers: new Headers({ 'content-type': 'application/rss+xml', 'content-length': String(MAX_RSS_BYTES + 1) }),
+      async arrayBuffer () { bodyRead = true; return new ArrayBuffer(0) }
+    })
+  }), /larger than 2 MB/)
+  assert.equal(bodyRead, false)
+})
+
+test('inspectTarget: recognizes a directly entered RSS document', async () => {
+  const result = await inspectTarget('https://example.com/feed', {
+    Parser: DOMParser,
+    fetchImpl: async () => new Response(rss, { headers: { 'content-type': 'application/rss+xml' } }),
+    includeOrf: false
+  })
+  assert.equal(result.kind, 'feed')
+  assert.equal(result.candidates[0].title, 'News')
+  assert.ok(result.candidates[0].validated)
+})
+
+test('inspectTarget: recognizes direct RSS 1.0 served as generic XML', async () => {
+  const rdf = `<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+    <channel rdf:about="https://orf.at/"><title>news.ORF.at</title><link>https://orf.at/</link></channel>
+    <item rdf:about="https://orf.at/stories/1/"><title>Headline</title><link>https://orf.at/stories/1/</link></item>
+  </rdf:RDF>`
+  const result = await inspectTarget('https://rss.orf.at/news.xml', {
+    Parser: DOMParser,
+    fetchImpl: async () => new Response(rdf, { headers: { 'content-type': 'application/xml; charset=utf-8' } }),
+    includeOrf: false
+  })
+  assert.equal(result.kind, 'feed')
+  assert.equal(result.candidates[0].title, 'news.ORF.at')
+  assert.equal(result.candidates[0].url, 'https://rss.orf.at/news.xml')
+})
+
+test('inspectTarget: does not downgrade malformed direct RSS into a website', async () => {
+  await assert.rejects(inspectTarget('https://example.com/feed', {
+    Parser: DOMParser,
+    fetchImpl: async () => new Response('<feed xmlns="http://www.w3.org/2005/Atom"/>', { headers: { 'content-type': 'application/rss+xml' } }),
+    includeOrf: false
+  }), /RSS/)
+})
+
+test('inspectTarget: validates advertised feeds and probes common paths as fallback', async () => {
+  const calls = []
+  const fetchImpl = async (url) => {
+    calls.push(String(url))
+    if (String(url).endsWith('/feed/')) return new Response(rss, { headers: { 'content-type': 'application/rss+xml' } })
+    if (String(url).endsWith('/feed')) return new Response(rss, { headers: { 'content-type': 'application/rss+xml' } })
+    if (String(url).endsWith('/page')) return new Response('<html><head><link rel="alternate" type="application/rss+xml" href="/feed"></head></html>', { headers: { 'content-type': 'text/html' } })
+    return new Response('no', { status: 404 })
+  }
+  const advertised = await inspectTarget('https://example.com/page', { Parser: DOMParser, fetchImpl, includeOrf: false })
+  assert.equal(advertised.candidates[0].url, 'https://example.com/feed')
+
+  const fallback = await inspectTarget('https://other.test/home', {
+    Parser: DOMParser,
+    includeOrf: false,
+    fetchImpl: async (url) => String(url).endsWith('/feed/')
+      ? new Response(rss, { headers: { 'content-type': 'application/rss+xml' } })
+      : new Response('<html></html>', { headers: { 'content-type': 'text/html' } })
+  })
+  assert.equal(fallback.candidates[0].url, 'https://other.test/feed/')
+})
+
+test('unpermitted cross-origin advertisements remain selectable for later validation', async () => {
+  const result = await inspectTarget('https://example.com/page', {
+    Parser: DOMParser,
+    includeOrf: false,
+    canFetch: async url => new URL(url).origin === 'https://example.com',
+    fetchImpl: async () => new Response('<link rel="alternate" type="application/rss+xml" title="Comments" href="https://feeds.test/comments"><link rel="alternate" type="application/rss+xml" title="Main" href="https://feeds.test/main">', { headers: { 'content-type': 'text/html' } })
+  })
+  assert.equal(result.candidates.length, 2)
+  assert.deepEqual(defaultCandidateIds(result.candidates), ['https://feeds.test/main'])
+})

@@ -9,8 +9,10 @@ settings, and check results live only in the extension's local storage, and noth
   "host down" notifications.
 - `webRequest` + `webRequestBlocking` — to (a) read the TLS-certificate expiry of sites you preview and
   (b) strip framing-protection headers so they can be embedded (see below).
-- **Host access is per-site and optional.** Glanceboard requests permission for an origin only when you
-  add (or import) it — it does **not** request access to all sites by default.
+- **Host access is per-site or per-feed and optional.** Glanceboard requests permission for an exact
+  origin only when you add (or import) a website or feed — it does **not** request access to all sites
+  by default. Feed discovery may require a second exact-origin prompt when a page advertises a feed on
+  another host. Permissions are retained while any saved site or feed needs them and revoked afterward.
 - **Adding a single page still grants the whole host.** You can monitor one page (`example.com/status`)
   rather than a site root, but the permission Firefox grants — and therefore the framing-header stripping
   described below — applies to that page's entire origin, not just its path. Adding a page is exactly as
@@ -42,7 +44,18 @@ capability requires **Manifest V2** — Firefox MV3 forbids modifying these head
 
 Background checks are **off** until you opt in, so the extension does not poll, consume bandwidth, or put
 load on anyone's servers unless you choose to. Certificate and load-time data are gathered only from
-previews you actually open.
+previews you actually open. RSS feeds are fetched only when the dashboard opens or when you manually
+refresh a feed tile; they are never part of the background alarm.
+
+## RSS content
+
+RSS is untrusted remote input. Glanceboard accepts RSS 1.0 or 2.0 only over HTTP(S), rejects XML documents
+with a DOCTYPE, caps responses at 2 MB, and stores a bounded set of normalized titles, links, dates,
+plain-text descriptions, and image URLs. Feed markup is parsed in a detached document and is never
+injected with `innerHTML` or Vue's `v-html`; scripts and embedded markup are not rendered. Item and image
+URLs are restricted to HTTP(S). When enabled for a feed, remote images load lazily without an HTTP
+referrer; they can still make a request to the publisher or its image host, so images can be disabled
+per feed.
 
 ## Reporting a vulnerability
 
