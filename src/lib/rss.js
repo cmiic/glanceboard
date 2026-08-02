@@ -2,7 +2,11 @@ export const MAX_RSS_BYTES = 2 * 1024 * 1024
 export const MAX_RSS_ITEMS = 50
 export const MAX_GROUP_ITEMS = 30
 export const MAX_RSS_DESCRIPTION_CHARS = 10000
+export const MAX_FEED_BYTES = MAX_RSS_BYTES
+export const MAX_FEED_ITEMS = MAX_RSS_ITEMS
+export const MAX_FEED_DESCRIPTION_CHARS = MAX_RSS_DESCRIPTION_CHARS
 const RDF_NAMESPACE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#'
+const AUDIO_EXTENSIONS = /\.(?:mp3|m4a|aac|ogg|oga|opus|wav|flac)(?:$|[?#])/i
 
 export function normalizeHttpUrl (value, base) {
   try {
@@ -17,7 +21,7 @@ export function normalizeHttpUrl (value, base) {
   }
 }
 
-function directChildren (node, localName) {
+export function directChildren (node, localName) {
   const wanted = String(localName).toLowerCase()
   return Array.from(node?.childNodes || []).filter(child =>
     child.nodeType === 1 && String(child.localName || child.nodeName).toLowerCase().split(':').pop() === wanted)
@@ -27,7 +31,7 @@ function firstChild (node, localName) {
   return directChildren(node, localName)[0] || null
 }
 
-function childText (node, localName) {
+export function childText (node, localName) {
   return firstChild(node, localName)?.textContent?.trim() || ''
 }
 
@@ -43,13 +47,13 @@ function childLinkText (node) {
   return ''
 }
 
-function safeDate (value) {
+export function safeDate (value) {
   if (!value) return null
   const timestamp = Date.parse(value)
   return Number.isFinite(timestamp) ? timestamp : null
 }
 
-function parserFailed (document) {
+export function parserFailed (document) {
   const rootName = String(document?.documentElement?.localName || document?.documentElement?.nodeName || '').toLowerCase()
   return !document?.documentElement || rootName === 'parsererror' || document.getElementsByTagName('parsererror').length > 0
 }
@@ -60,7 +64,7 @@ function htmlDocument (markup, Parser) {
   return document
 }
 
-function descriptionText (markup, Parser) {
+export function descriptionText (markup, Parser) {
   if (!markup) return ''
   try {
     const document = htmlDocument(markup, Parser)
@@ -70,7 +74,7 @@ function descriptionText (markup, Parser) {
   }
 }
 
-function imageFromMarkup (markup, base, Parser) {
+export function imageFromMarkup (markup, base, Parser) {
   if (!markup) return null
   try {
     const src = htmlDocument(markup, Parser).querySelector?.('img[src]')?.getAttribute('src')
@@ -101,6 +105,52 @@ function itemImage (itemNode, descriptionMarkup, base, Parser) {
   return imageFromMarkup(descriptionMarkup, base, Parser)
 }
 
+export function parseDurationSeconds (value) {
+  const text = String(value ?? '').trim()
+  if (!text) return null
+  if (/^\d+(?:\.\d+)?$/.test(text)) {
+    const seconds = Number(text)
+    return Number.isFinite(seconds) && seconds >= 0 ? seconds : null
+  }
+  const parts = text.split(':')
+  if (parts.length < 2 || parts.length > 3 || parts.some(part => !/^\d+(?:\.\d+)?$/.test(part))) return null
+  const values = parts.map(Number)
+  const seconds = parts.length === 3
+    ? values[0] * 3600 + values[1] * 60 + values[2]
+    : values[0] * 60 + values[1]
+  return Number.isFinite(seconds) ? seconds : null
+}
+
+export function normalizeAudio (value, base) {
+  const url = normalizeHttpUrl(value?.url, base)
+  const mimeType = String(value?.mimeType || '').trim().toLowerCase() || null
+  if (!url || (!mimeType?.startsWith('audio/') && !AUDIO_EXTENSIONS.test(url))) return null
+  const hasByteLength = value?.byteLength != null && value.byteLength !== ''
+  const hasDuration = value?.durationSeconds != null && value.durationSeconds !== ''
+  const byteLength = hasByteLength ? Number(value.byteLength) : NaN
+  const durationSeconds = hasDuration ? Number(value.durationSeconds) : NaN
+  return {
+    url,
+    mimeType,
+    byteLength: Number.isFinite(byteLength) && byteLength >= 0 ? byteLength : null,
+    durationSeconds: Number.isFinite(durationSeconds) && durationSeconds >= 0 ? durationSeconds : null
+  }
+}
+
+function itemAudio (itemNode, base) {
+  const durationSeconds = parseDurationSeconds(childText(itemNode, 'duration'))
+  for (const node of directChildren(itemNode, 'enclosure')) {
+    const audio = normalizeAudio({
+      url: node.getAttribute?.('url'),
+      mimeType: node.getAttribute?.('type'),
+      byteLength: node.getAttribute?.('length'),
+      durationSeconds
+    }, base)
+    if (audio) return audio
+  }
+  return null
+}
+
 export function truncateFeedDescription (value, maxChars) {
   const text = String(value || '')
   const limit = Math.max(0, Math.floor(Number(maxChars) || 0))
@@ -112,7 +162,7 @@ export function truncateFeedDescription (value, maxChars) {
 // A DOCTYPE is legal only in the XML prolog, after the optional declaration, comments and
 // processing instructions. Inspect that prefix without parsing so external/internal DTDs are
 // rejected before DOMParser sees them, while literal "<!DOCTYPE" text inside CDATA remains valid.
-function hasPrologDoctype (xml) {
+export function hasPrologDoctype (xml) {
   let remaining = xml.trimStart()
   if (/^<\?xml(?:\s|\?>)/i.test(remaining)) {
     const end = remaining.indexOf('?>')
@@ -167,14 +217,20 @@ export function parseRss (xml, { url, Parser = globalThis.DOMParser } = {}) {
     const description = Array.from(descriptionText(descriptionMarkup, Parser))
       .slice(0, MAX_RSS_DESCRIPTION_CHARS).join('')
     const imageUrl = itemImage(itemNode, descriptionMarkup, url, Parser)
+    const audio = itemAudio(itemNode, url)
     const id = guid || link || `${publishedAt ?? ''}:${title}`
     if (seen.has(id)) continue
     seen.add(id)
-    items.push({ id, title, url: link, publishedAt, description, imageUrl })
+    items.push({ id, title, url: link, publishedAt, description, imageUrl, audio })
     if (items.length >= MAX_RSS_ITEMS) break
   }
 
   return { channel: { title: channelTitle, url: channelLink }, items }
+}
+
+export function sniffRss (body, contentType = '') {
+  if (/application\/(?:rss|rdf)\+xml/i.test(contentType)) return true
+  return /^\s*(?:<\?xml[^>]*>\s*)?(?:<!--[^]*?-->\s*)?<(?:rss\b|(?:[\w-]+:)?RDF\b)/i.test(String(body || ''))
 }
 
 function decodeXml (buffer, contentType = '') {
@@ -253,7 +309,7 @@ export async function fetchRss (url, {
     signal: AbortSignal.timeout(timeoutMs)
   })
   if (response.status === 304 && previous) {
-    return { url: requestedUrl, cache: { ...previous, fetchedAt: now(), error: null } }
+    return { url: requestedUrl, notModified: true, cache: { ...previous, fetchedAt: now(), error: null } }
   }
   if (!response.ok) throw new Error(`RSS request failed (${response.status})`)
   const finalUrl = normalizeHttpUrl(response.url || requestedUrl)
@@ -261,6 +317,7 @@ export async function fetchRss (url, {
   const parsed = parseRss(await readBoundedResponseText(response, { maxBytes }), { url: finalUrl, Parser })
   return {
     url: finalUrl,
+    notModified: false,
     cache: {
       fetchedAt: now(),
       etag: response.headers.get('etag') || null,

@@ -3,7 +3,7 @@ import { ref, watch } from 'vue'
 import { browser } from '@/lib/browser.js'
 import {
   setSettings, getHosts, addHost, setAllHostsMetric, resetTileLayouts,
-  getFeedGroups, getFeedSources, createFeedGroup, addFeedSources
+  getFeedGroups, getFeedSources, getReadLater, createFeedGroup, addFeedSources, mergeReadLater
 } from '@/lib/storage.js'
 import { normalizeTarget } from '@/lib/url.js'
 import { buildExportDocument, normalizeImportFeed, parseImportDocument } from '@/lib/backup.js'
@@ -14,6 +14,7 @@ const props = defineProps({ settings: { type: Object, default: () => ({}) } })
 const cardMinWidth = ref(props.settings.cardMinWidth ?? 320)
 const intervalMinutes = ref(props.settings.intervalMinutes ?? 0)
 const previewIntervalMinutes = ref(props.settings.previewIntervalMinutes ?? 0)
+const feedPollingEnabled = ref(!!props.settings.feedPollingEnabled)
 const mode = ref(props.settings.mode ?? 'auto')
 const notificationsEnabled = ref(!!props.settings.notificationsEnabled)
 const defCert = ref(!!props.settings.metricDefaults?.cert)
@@ -25,6 +26,7 @@ watch(() => props.settings, (s) => {
   if (typeof s.cardMinWidth === 'number') cardMinWidth.value = s.cardMinWidth
   if (typeof s.intervalMinutes === 'number') intervalMinutes.value = s.intervalMinutes
   if (typeof s.previewIntervalMinutes === 'number') previewIntervalMinutes.value = s.previewIntervalMinutes
+  feedPollingEnabled.value = !!s.feedPollingEnabled
   if (s.mode) mode.value = s.mode
   notificationsEnabled.value = !!s.notificationsEnabled
   defCert.value = !!s.metricDefaults?.cert
@@ -34,6 +36,7 @@ watch(() => props.settings, (s) => {
 function saveCardWidth () { setSettings({ cardMinWidth: Number(cardMinWidth.value) }) }
 function saveInterval () { setSettings({ intervalMinutes: Number(intervalMinutes.value) }) }
 function savePreviewInterval () { setSettings({ previewIntervalMinutes: Number(previewIntervalMinutes.value) }) }
+function saveFeedPolling () { setSettings({ feedPollingEnabled: feedPollingEnabled.value }) }
 function saveMode () { setSettings({ mode: mode.value }) }
 function saveNotifications () { setSettings({ notificationsEnabled: notificationsEnabled.value }) }
 function saveDefaults () { setSettings({ metricDefaults: { cert: defCert.value, load: defLoad.value } }) }
@@ -65,8 +68,8 @@ const importError = ref('')
 const importNotice = ref('')
 
 async function exportHosts () {
-  const [hosts, groups, sources] = await Promise.all([getHosts(), getFeedGroups(), getFeedSources()])
-  const backup = buildExportDocument(hosts, groups, sources)
+  const [hosts, groups, sources, saved] = await Promise.all([getHosts(), getFeedGroups(), getFeedSources(), getReadLater()])
+  const backup = buildExportDocument(hosts, groups, sources, saved)
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -87,9 +90,9 @@ function onFile (e) {
   reader.onload = () => {
     try {
       const parsed = JSON.parse(String(reader.result))
-      const { sites, feedGroups } = parseImportDocument(parsed)
-      if (!sites.length && !feedGroups.length) { importError.value = 'No sites or feed groups found in file'; pending.value = null; return }
-      pending.value = { sites, feedGroups }
+      const { sites, feedGroups, readLater } = parseImportDocument(parsed)
+      if (!sites.length && !feedGroups.length && !readLater.length) { importError.value = 'No sites, feed groups, or saved items found in file'; pending.value = null; return }
+      pending.value = { sites, feedGroups, readLater }
     } catch {
       importError.value = 'Invalid JSON file'
       pending.value = null
@@ -127,8 +130,9 @@ async function doImport () {
       }
       if (imported.feeds.length) await addFeedSources(imported.feeds, { groupId: group.id })
     }
+    if (pending.value.readLater.length) await mergeReadLater(pending.value.readLater)
     importError.value = ''
-    importNotice.value = `Imported ${validSites.length} site(s), ${feedCount} feed(s), and ${validGroups.length} group(s)` +
+    importNotice.value = `Imported ${validSites.length} site(s), ${feedCount} feed(s), ${validGroups.length} group(s), and ${pending.value.readLater.length} saved item(s)` +
       (skipped ? `; skipped ${skipped} invalid` : '')
     pending.value = null
   } catch (e) {
@@ -246,6 +250,22 @@ async function doImport () {
         the previews while the dashboard is open (desktop layout only). Previews load one at a time,
         each starting when the previous finishes (or after up to 2 seconds), so the sites are never
         all requested at once.
+      </p>
+    </div>
+
+    <div class="card setting">
+      <label class="setting-label">
+        <input
+          v-model="feedPollingEnabled"
+          type="checkbox"
+          @change="saveFeedPolling"
+        >
+        Refresh feeds in the background
+      </label>
+      <p class="popup-load">
+        Off by default. When enabled, each feed follows its Auto, fixed-interval, or Off setting.
+        Auto adapts between hourly and daily checks from the feed's recent publication cadence.
+        Background refresh updates cached items but does not send notifications.
       </p>
     </div>
 
@@ -413,7 +433,8 @@ async function doImport () {
           @click="doImport"
         >
           Grant &amp; import {{ pending.sites.length }} site(s) and
-          {{ pending.feedGroups.reduce((count, group) => count + group.feeds.length, 0) }} feed(s)
+          {{ pending.feedGroups.reduce((count, group) => count + group.feeds.length, 0) }} feed(s),
+          {{ pending.readLater.length }} saved item(s)
         </button>
       </div>
       <span

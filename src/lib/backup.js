@@ -1,4 +1,4 @@
-import { feedSourceDisplay } from './feed-settings.js'
+import { feedSourceDisplay, feedSourceRefresh } from './feed-settings.js'
 import { normalizeHttpUrl } from './rss.js'
 import { normalizeTarget } from './url.js'
 
@@ -9,9 +9,9 @@ export function normalizeImportFeed (feed) {
   return url ? { ...feed, url } : null
 }
 
-export function buildExportDocument (hosts, groups, sources) {
+export function buildExportDocument (hosts, groups, sources, readLater = []) {
   return {
-    version: 3,
+    version: 4,
     sites: (hosts || []).map(host => host.url),
     feedGroups: (groups || []).map(group => ({
       name: group.name,
@@ -20,9 +20,11 @@ export function buildExportDocument (hosts, groups, sources) {
         url: source.url,
         title: source.title,
         discoveredFrom: source.discoveredFrom,
-        display: feedSourceDisplay(source)
+        display: feedSourceDisplay(source),
+        refresh: feedSourceRefresh(source)
       }))
-    }))
+    })),
+    readLater: (readLater || []).map(item => ({ ...item }))
   }
 }
 
@@ -35,13 +37,14 @@ export function parseImportDocument (parsed) {
     ? parsed.feedGroups.map(group => ({
         name: String(group?.name || '').trim(),
         feeds: (Array.isArray(group?.feeds) ? group.feeds : [])
-          .filter(feed => feed?.type === 'rss' && feed?.url)
+          .filter(feed => ['rss', 'atom', 'jsonfeed'].includes(feed?.type) && feed?.url)
           .map(feed => ({
-            type: 'rss', url: feed.url, title: String(feed.title || '').trim(),
+            type: feed.type, url: feed.url, title: String(feed.title || '').trim(),
             discoveredFrom: feed.discoveredFrom || null,
-            display: feedSourceDisplay(feed)
+            display: feedSourceDisplay(feed), refresh: feedSourceRefresh(feed)
           }))
       })).filter(group => group.name)
     : []
-  return { sites, feedGroups }
+  const readLater = Array.isArray(parsed?.readLater) ? parsed.readLater.filter(item => item && typeof item === 'object') : []
+  return { sites, feedGroups, readLater }
 }

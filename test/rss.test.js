@@ -96,6 +96,19 @@ test('parseRss: extracts plain-text descriptions and safe item images', () => {
   assert.equal(items[3].imageUrl, null)
 })
 
+test('parseRss extracts podcast audio and common duration formats', () => {
+  const podcast = `<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>Show</title>
+    <item><guid>one</guid><title>Episode</title><itunes:duration>1:02:03</itunes:duration>
+      <enclosure url="/episode.mp3" type="audio/mpeg" length="1234"/></item>
+    <item><guid>two</guid><title>Unsafe</title><enclosure url="javascript:alert(1)" type="audio/mpeg"/></item>
+  </channel></rss>`
+  const items = parseRss(podcast, { url: 'https://example.com/feed.xml', Parser: DOMParser }).items
+  assert.deepEqual(items[0].audio, {
+    url: 'https://example.com/episode.mp3', mimeType: 'audio/mpeg', byteLength: 1234, durationSeconds: 3723
+  })
+  assert.equal(items[1].audio, null)
+})
+
 test('normalizeHttpUrl: allows HTTP(S), resolves relatives and rejects credentials or scripts', () => {
   assert.equal(normalizeHttpUrl('/feed#top', 'https://example.com/page'), 'https://example.com/feed')
   assert.equal(normalizeHttpUrl('', 'https://example.com/page'), null)

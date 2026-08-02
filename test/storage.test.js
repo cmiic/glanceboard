@@ -131,6 +131,7 @@ test('feed groups: create, rename, enforce unique names and move sources', async
   assert.equal(sources[0].id, 'rss:https://example.com/feed')
   assert.equal(sources[0].groupId, first.id)
   assert.deepEqual(sources[0].display, { showImage: true, showDescription: true, descriptionMaxChars: 240 })
+  assert.deepEqual(sources[0].refresh, { mode: 'auto', intervalMinutes: null })
   await storage.setFeedSourceDisplay(sources[0].id, { showImage: false, descriptionMaxChars: 90 })
   sources = await storage.getFeedSources()
   assert.deepEqual(sources[0].display, { showImage: false, showDescription: true, descriptionMaxChars: 90 })
@@ -139,6 +140,68 @@ test('feed groups: create, rename, enforce unique names and move sources', async
   assert.equal(sources[0].groupId, second.id)
   await storage.renameFeedGroup(second.id, 'Entertainment')
   assert.equal((await storage.getFeedGroups()).find(group => group.id === second.id).name, 'Entertainment')
+})
+
+test('feed URLs are globally deduplicated across adapter types and refresh settings validate', async () => {
+  const group = await storage.createFeedGroup('Formats')
+  await storage.addFeedSources([{ type: 'atom', url: 'https://example.com/feed' }], { groupId: group.id })
+  await storage.addFeedSources([{ type: 'rss', url: 'https://example.com/feed' }], { groupId: group.id })
+  let sources = await storage.getFeedSources()
+  assert.equal(sources.length, 1)
+  await storage.setFeedSourceRefresh(sources[0].id, { mode: 'fixed', intervalMinutes: 180 })
+  sources = await storage.getFeedSources()
+  assert.deepEqual(sources[0].refresh, { mode: 'fixed', intervalMinutes: 180 })
+  await storage.setFeedSourceRefresh(sources[0].id, { mode: 'fixed', intervalMinutes: 17 })
+  assert.deepEqual((await storage.getFeedSources())[0].refresh, { mode: 'auto', intervalMinutes: null })
+})
+
+test('Read Later snapshots are idempotent, compact and survive source removal', async () => {
+  const group = await storage.createFeedGroup('Saved')
+  const { added } = await storage.addFeedSources([{ type: 'rss', url: 'https://example.com/feed', title: 'Example' }], { groupId: group.id })
+  const source = added[0]
+  const item = {
+    id: 'one', title: 'Episode', url: 'https://example.com/post', sourceTitle: 'Example',
+    description: 'x'.repeat(storage.MAX_READ_LATER_DESCRIPTION_CHARS + 10),
+    audio: { url: 'https://cdn.example.com/one.mp3', mimeType: 'audio/mpeg' }
+  }
+  await storage.saveReadLater(source, item)
+  await storage.saveReadLater(source, item)
+  await storage.removeFeedSource(source.id)
+  const saved = await storage.getReadLater()
+  assert.equal(saved.length, 1)
+  assert.equal(saved[0].description.length, storage.MAX_READ_LATER_DESCRIPTION_CHARS)
+  assert.equal(saved[0].audio.url, 'https://cdn.example.com/one.mp3')
+  await storage.removeReadLater(saved[0].id)
+  assert.deepEqual(await storage.getReadLater(), [])
+})
+
+test('Read Later enforces its cap without silently evicting', async () => {
+  const original = storage.MAX_READ_LATER_ITEMS
+  const items = Array.from({ length: original }, (_, index) => ({
+    id: `read-later:s\u001f${index}`, sourceId: 's', itemId: String(index), savedAt: index,
+    source: { id: 's', type: 'rss', url: 'https://example.com/feed', title: 'Feed' },
+    title: String(index), url: `https://example.com/${index}`, description: '', imageUrl: null, audio: null
+  }))
+  data.readLater = items
+  await assert.rejects(storage.saveReadLater(
+    { id: 's', type: 'rss', url: 'https://example.com/feed' },
+    { id: 'overflow', title: 'Overflow', url: 'https://example.com/overflow' }
+  ), /limited to 500/)
+  assert.equal((await storage.getReadLater()).length, original)
+})
+
+test('podcast progress resumes, clears near completion and retains the newest 100 records', async () => {
+  await storage.setPodcastProgress('https://cdn.example.com/episode.mp3', 120, 600, 1)
+  assert.equal((await storage.getPodcastProgress())['https://cdn.example.com/episode.mp3'].positionSeconds, 120)
+  await storage.setPodcastProgress('https://cdn.example.com/episode.mp3', 580, 600, 2)
+  assert.equal((await storage.getPodcastProgress())['https://cdn.example.com/episode.mp3'], undefined)
+  for (let index = 0; index < 105; index++) {
+    await storage.setPodcastProgress(`https://cdn.example.com/${index}.mp3`, 10, 1000, index)
+  }
+  const progress = await storage.getPodcastProgress()
+  assert.equal(Object.keys(progress).length, 100)
+  assert.equal(progress['https://cdn.example.com/0.mp3'], undefined)
+  assert.ok(progress['https://cdn.example.com/104.mp3'])
 })
 
 test('addFeedSources reports when its selected group was deleted', async () => {
@@ -321,6 +384,7 @@ test('getSettings: merges defaults; checks default to off', async () => {
   const s = await storage.getSettings()
   assert.equal(s.intervalMinutes, 0)
   assert.equal(s.previewIntervalMinutes, 0)
+  assert.equal(s.feedPollingEnabled, false)
   assert.deepEqual(s.metricDefaults, { cert: false, load: false })
   await storage.setSettings({ intervalMinutes: 5 })
   assert.equal((await storage.getSettings()).intervalMinutes, 5)

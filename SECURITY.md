@@ -44,20 +44,24 @@ capability requires **Manifest V2** — Firefox MV3 forbids modifying these head
 
 ## Off by default
 
-Background checks are **off** until you opt in, so the extension does not poll, consume bandwidth, or put
-load on anyone's servers unless you choose to. Certificate and load-time data are gathered only from
-previews you actually open. RSS feeds are fetched only when the dashboard opens or when you manually
-refresh a feed tile; they are never part of the background alarm.
+Background site checks and background feed refresh are **off** until you opt in, so the extension does
+not poll, consume bandwidth, or put load on anyone's servers unless you choose to. Certificate and
+load-time data are gathered only from previews you actually open. Feeds are otherwise fetched when the
+dashboard opens or when you manually refresh a feed tile. Background feed refresh is sequential,
+individually configurable, and bounded between hourly and daily in Auto mode.
 
-## RSS content
+## Feed content and media
 
-RSS is untrusted remote input. Glanceboard accepts RSS 1.0 or 2.0 only over HTTP(S), rejects XML documents
-with a DOCTYPE, caps responses at 2 MB, and stores a bounded set of normalized titles, links, dates,
-plain-text descriptions, and image URLs. Feed markup is parsed in a detached document and is never
-injected with `innerHTML` or Vue's `v-html`; scripts and embedded markup are not rendered. Item and image
-URLs are restricted to HTTP(S). When enabled for a feed, remote images load lazily without an HTTP
-referrer; they can still make a request to the publisher or its image host, so images can be disabled
-per feed.
+RSS, Atom, and JSON Feed are untrusted remote input. Glanceboard accepts RSS 1.0/2.0, Atom, and JSON Feed
+1.0/1.1 only over HTTP(S), rejects XML documents with a DOCTYPE, caps responses at 2 MB, and stores a
+bounded set of normalized titles, links, dates, plain-text descriptions, image URLs, and podcast
+metadata. Feed markup is parsed in a detached document and is never injected with `innerHTML` or Vue's
+`v-html`; scripts and embedded markup are not rendered. Item, image, and audio URLs are restricted to
+HTTP(S).
+
+Remote images load lazily without an HTTP referrer and can be disabled per feed. Starting podcast
+playback makes a streaming request to the enclosure or attachment host; audio bytes are never cached by
+Glanceboard. Read Later stores compact metadata snapshots locally, not article or media contents.
 
 ## Reporting a vulnerability
 

@@ -3,9 +3,11 @@ import { browser } from '@/lib/browser.js'
 import { stripFramingHeaders, isFromOwnExtension, isApprovedTarget } from '@/lib/headers.js'
 import { checkHost } from '@/lib/monitor.js'
 import { stepDelay, delayUntilSlot } from '@/lib/schedule.js'
+import { refreshFeedSources } from '@/lib/feed-refresh.js'
+import { nextFeedRefreshAt } from '@/lib/feed-polling.js'
 import {
   getHosts, getSettings, pushResult, ensureSeeded, migrateResultsToPerKey,
-  reconcileOriginPermissions, entryOrigin, entryLabel
+  reconcileOriginPermissions, entryOrigin, entryLabel, getFeedSources, getAllFeedCaches
 } from '@/lib/storage.js'
 
 // Firefox MV2 persistent background page. WXT imports this file in Node at build time to read the
@@ -14,6 +16,7 @@ export default defineBackground({
   persistent: true,
   main () {
     const ALARM = 'glanceboard-check'
+    const FEED_ALARM = 'glanceboard-feed-refresh'
     const FILTER = { urls: ['*://*/*'], types: ['sub_frame', 'xmlhttprequest'] }
     const EXT_BASE = browser.runtime.getURL('/') // our extension's moz-extension:// base URL
     const certCache = new Map() // hostname -> { certExpiresInDays, capturedAt }
@@ -128,8 +131,65 @@ export default defineBackground({
       }
     }
 
+    const pendingFeedJobs = []
+    let feedQueueRunning = false
+
+    async function drainFeedQueue () {
+      if (feedQueueRunning) return
+      feedQueueRunning = true
+      try {
+        while (pendingFeedJobs.length) {
+          // A user-forced refresh goes ahead of queued automatic/dashboard-due work, but never
+          // interrupts a refresh batch already in flight.
+          pendingFeedJobs.sort((a, b) => b.priority - a.priority || a.order - b.order)
+          const job = pendingFeedJobs.shift()
+          try {
+            const settings = await getSettings()
+            const result = await refreshFeedSources(job.sourceIds, {
+              force: job.force, pollingEnabled: !!settings.feedPollingEnabled
+            })
+            await scheduleFeedRefresh(settings)
+            job.resolve(result)
+          } catch (error) {
+            console.error('Glanceboard feed refresh failed', error)
+            job.reject(error)
+          }
+        }
+      } finally {
+        feedQueueRunning = false
+      }
+    }
+
+    let feedJobOrder = 0
+    function enqueueFeedRefresh (sourceIds, { force = false } = {}) {
+      return new Promise((resolve, reject) => {
+        pendingFeedJobs.push({ sourceIds, force, priority: force ? 1 : 0, order: feedJobOrder++, resolve, reject })
+        drainFeedQueue().catch(error => {
+          console.error('Glanceboard feed queue failed', error)
+          reject(error)
+        })
+      })
+    }
+
+    async function scheduleFeedRefresh (settings) {
+      if (!settings.feedPollingEnabled) {
+        await browser.alarms.clear(FEED_ALARM)
+        return
+      }
+      const [sources, caches] = await Promise.all([getFeedSources(), getAllFeedCaches()])
+      const when = nextFeedRefreshAt(sources, caches)
+      if (when == null) await browser.alarms.clear(FEED_ALARM)
+      else await browser.alarms.create(FEED_ALARM, { when: Math.max(Date.now() + 1000, when) })
+    }
+
     browser.alarms.onAlarm.addListener((alarm) => {
       if (alarm.name === ALARM) runChecks().catch(err => console.error('Glanceboard runChecks failed', err))
+      if (alarm.name === FEED_ALARM) enqueueFeedRefresh(null).catch(err => console.error('Glanceboard scheduled feed refresh failed', err))
+    })
+
+    browser.runtime.onMessage.addListener((message) => {
+      if (message?.type !== 'refresh-feeds') return undefined
+      return enqueueFeedRefresh(Array.isArray(message.sourceIds) ? message.sourceIds : null, { force: !!message.force })
     })
 
     // Re-register the listener when hosts change; (re)schedule or stop checks when settings change.
@@ -140,7 +200,13 @@ export default defineBackground({
         approvedOrigins = new Set((changes.hosts.newValue || []).map(entryOrigin).filter(Boolean))
         registerWebRequest()
       }
-      if (changes.settings) await scheduleChecks(await getSettings())
+      if (changes.settings) {
+        const settings = await getSettings()
+        await scheduleChecks(settings)
+        await scheduleFeedRefresh(settings)
+      } else if (changes.feedSources) {
+        await scheduleFeedRefresh(await getSettings())
+      }
     })
 
     async function init () {
@@ -156,8 +222,12 @@ export default defineBackground({
       await reconcileOriginPermissions()
       const settings = await getSettings()
       await scheduleChecks(settings)
+      await scheduleFeedRefresh(settings)
       if ((Number(settings.intervalMinutes) || 0) >= 1) {
         runChecks().catch(err => console.error('Glanceboard initial run failed', err))
+      }
+      if (settings.feedPollingEnabled) {
+        enqueueFeedRefresh(null).catch(err => console.error('Glanceboard initial feed refresh failed', err))
       }
     }
 

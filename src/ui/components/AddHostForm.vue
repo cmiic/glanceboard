@@ -86,7 +86,7 @@ async function inspect (url, discoveredFrom) {
     groupName.value = suggestGroupName(selected?.title || 'Feed group', groups.value)
   } catch (e) {
     failedTarget.value = { url, discoveredFrom }
-    error.value = `Could not check for RSS: ${e?.message || String(e)}`
+    error.value = `Could not check for feeds: ${e?.message || String(e)}`
   }
 }
 
@@ -149,7 +149,7 @@ async function confirmSelection () {
   const selected = wantsFeeds.value
     ? review.value.candidates.filter(item => selectedUrls.value.includes(item.url))
     : []
-  if (wantsFeeds.value && !selected.length) { error.value = 'Select at least one RSS feed'; return }
+  if (wantsFeeds.value && !selected.length) { error.value = 'Select at least one feed'; return }
   if (wantsFeeds.value && groupChoice.value === '__new__' && !groupName.value.trim()) {
     error.value = 'Enter a feed group name'; return
   }
@@ -173,7 +173,7 @@ async function confirmSelection () {
       const patterns = [...new Set(selected.map(item => normalizeTarget(item.url)?.originPattern).filter(Boolean))]
       // The confirmation button supplies a fresh user gesture for cross-origin feed permissions.
       const granted = await browser.permissions.request({ origins: patterns })
-      if (!granted) { error.value = 'Permission is needed to read the selected RSS feed(s)'; return }
+      if (!granted) { error.value = 'Permission is needed to read the selected feed(s)'; return }
       rememberPatterns(patterns)
     }
 
@@ -232,7 +232,7 @@ onBeforeUnmount(() => { cleanupTemporary().catch(() => {}) })
       v-model="input"
       class="input"
       type="text"
-      placeholder="add site, page, or RSS URL"
+      placeholder="add site, page, or feed URL"
       style="flex: 1; min-width: 200px"
       :disabled="busy || !!review || !!redirect || !!failedTarget"
     >
@@ -274,7 +274,7 @@ onBeforeUnmount(() => { cleanupTemporary().catch(() => {}) })
       v-else-if="review"
       class="add-review"
     >
-      <strong>{{ review.direct ? 'RSS feed detected' : 'RSS feed available' }}</strong>
+      <strong>{{ review.direct ? 'Feed detected' : 'Feeds available' }}</strong>
       <div
         v-if="!review.direct"
         class="add-options"
@@ -288,7 +288,7 @@ onBeforeUnmount(() => { cleanupTemporary().catch(() => {}) })
           v-model="choice"
           type="radio"
           value="feed"
-        > RSS feed</label>
+        > Feed</label>
         <label><input
           v-model="choice"
           type="radio"
@@ -308,7 +308,8 @@ onBeforeUnmount(() => { cleanupTemporary().catch(() => {}) })
             :value="candidate.url"
           >
           <span>
-            {{ candidate.title || 'RSS feed' }}
+            <span class="feed-format">{{ candidate.type === 'jsonfeed' ? 'JSON' : (candidate.type || 'rss').toUpperCase() }}</span>
+            {{ candidate.title || 'Feed' }}
             <span class="popup-load url-wrap">{{ candidate.url }}</span>
           </span>
         </label>
@@ -345,7 +346,7 @@ onBeforeUnmount(() => { cleanupTemporary().catch(() => {}) })
           :disabled="busy"
           @click="confirmSelection"
         >
-          {{ busy ? 'Adding…' : (review.direct ? 'Add RSS feed' : 'Add selection') }}
+          {{ busy ? 'Adding…' : (review.direct ? 'Add feed' : 'Add selection') }}
         </button>
         <button
           class="btn"
@@ -362,7 +363,7 @@ onBeforeUnmount(() => { cleanupTemporary().catch(() => {}) })
       v-else-if="failedTarget"
       class="add-review"
     >
-      <span class="popup-load">The RSS check failed. You can still add the website without a feed.</span>
+      <span class="popup-load">The feed check failed. You can still add the website without a feed.</span>
       <div class="field">
         <button
           class="btn btn-primary"
@@ -390,7 +391,7 @@ onBeforeUnmount(() => { cleanupTemporary().catch(() => {}) })
     <span
       v-else-if="preview && !review && !redirect"
       class="popup-load add-preview"
-    >checks {{ preview }} for RSS before adding</span>
+    >checks {{ preview }} for feeds before adding</span>
   </form>
 </template>
 
@@ -404,5 +405,6 @@ onBeforeUnmount(() => { cleanupTemporary().catch(() => {}) })
 .add-options { display: flex; flex-wrap: wrap; gap: 14px; }
 .add-options label, .feed-choice { display: flex; align-items: flex-start; gap: 6px; }
 .feed-choice + .feed-choice { margin-top: 6px; }
+.feed-format { display: inline-block; margin-right: 5px; padding: 1px 4px; border: 1px solid var(--border); border-radius: 4px; color: var(--text-dim); font-size: 10px; font-weight: 700; }
 .url-wrap { display: block; overflow-wrap: anywhere; }
 </style>

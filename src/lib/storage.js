@@ -1,7 +1,7 @@
 import { browser } from './browser.js'
 import { normalizeTarget } from './url.js'
-import { normalizeHttpUrl } from './rss.js'
-import { feedGroupNameKey, feedSourceDisplay } from './feed-settings.js'
+import { normalizeAudio, normalizeHttpUrl } from './rss.js'
+import { feedGroupNameKey, feedSourceDisplay, feedSourceRefresh } from './feed-settings.js'
 
 // storage.local schema:
 //   hosts:      [{ id, url, hostname, origin, label, addedAt, metrics:{cert,load}, layout:{x,y,w,h} }]
@@ -13,15 +13,17 @@ import { feedGroupNameKey, feedSourceDisplay } from './feed-settings.js'
 //               one key per monitored entry — so two pages of the same host keep separate histories,
 //               and concurrent writers (parallel preview iframes) don't clobber each other. The old
 //               monolithic `results` object is migrated away (migrateResultsToPerKey).
-//   settings:   { intervalMinutes, previewIntervalMinutes, mode, notificationsEnabled, maxSamples, cardMinWidth, metricDefaults }
+//   settings:   { intervalMinutes, previewIntervalMinutes, feedPollingEnabled, mode, notificationsEnabled, maxSamples, cardMinWidth, metricDefaults }
 //   feedSources:[{ id, type, url, discoveredFrom, title, groupId, addedAt,
-//                  display:{showImage,showDescription,descriptionMaxChars} }]
+//                  display:{showImage,showDescription,descriptionMaxChars}, refresh:{mode,intervalMinutes} }]
 //   feedGroups: [{ id, name, addedAt, layout:{x,y,w,h} }]
 //   feed-cache:<id>: { fetchedAt, etag, lastModified, channel, items, error }
+//   readLater:  compact feed-item snapshots (max 500)
+//   podcastProgress: { [audio URL]: { positionSeconds, durationSeconds, updatedAt } }
 //   seeded:     true once the (currently empty) default host list has been written
 const KEYS = {
   hosts: 'hosts', results: 'results', settings: 'settings', seeded: 'seeded',
-  feedSources: 'feedSources', feedGroups: 'feedGroups'
+  feedSources: 'feedSources', feedGroups: 'feedGroups', readLater: 'readLater', podcastProgress: 'podcastProgress'
 }
 // Per-entry results key prefix. `result:<entry id>` → that site's or page's rolling history.
 const RESULT_PREFIX = 'result:'
@@ -34,12 +36,17 @@ export const SEED_HOSTNAMES = []
 export const DEFAULT_SETTINGS = {
   intervalMinutes: 0, // 0 = off (no background checks); >= 1 = check every N minutes (floor 1)
   previewIntervalMinutes: 0, // 0 = off (load previews once on open, no auto-refresh); >= 1 = refresh every N min
+  feedPollingEnabled: false,
   mode: 'auto', // 'auto' | 'desktop' | 'mobile'
   notificationsEnabled: false,
   maxSamples: 60,
   cardMinWidth: 320, // px — min preview-tile width for the responsive desktop grid
   metricDefaults: { cert: false, load: false } // default visibility of the cert/load tiles for new hosts
 }
+
+export const MAX_READ_LATER_ITEMS = 500
+export const MAX_READ_LATER_DESCRIPTION_CHARS = 2000
+export const MAX_PODCAST_PROGRESS_ITEMS = 100
 
 function makeEntry (input) {
   const n = normalizeTarget(input)
@@ -247,25 +254,25 @@ function buildFeedAddition (sources, groups, items, { groupId = null, groupName 
     nextGroups = [...groups, group]
   }
 
-  const existingIds = new Set(sources.map(source => source.id))
+  const existingUrls = new Set(sources.map(source => normalizeHttpUrl(source.url)).filter(Boolean))
   const now = Date.now()
   const added = []
   const writes = {}
   for (const item of (items || [])) {
     const normalized = normalizeHttpUrl(item.url)
-    if (!normalized) throw new Error('Invalid RSS URL')
+    if (!normalized) throw new Error('Invalid feed URL')
     const type = String(item.type || 'rss')
     const id = `${type}:${normalized}`
-    if (existingIds.has(id)) continue
-    existingIds.add(id)
+    if (existingUrls.has(normalized)) continue
+    existingUrls.add(normalized)
     added.push({
       id, type, url: normalized, discoveredFrom: item.discoveredFrom || null,
       title: String(item.title || '').trim() || new URL(normalized).hostname,
-      groupId: group.id, addedAt: now, display: feedSourceDisplay(item)
+      groupId: group.id, addedAt: now, display: feedSourceDisplay(item), refresh: feedSourceRefresh(item)
     })
     if (item.cache) writes[FEED_CACHE_PREFIX + id] = plainStorageValue(item.cache)
   }
-  if (!added.length && !groupId) throw new Error('This RSS feed is already added')
+  if (!added.length && !groupId) throw new Error('This feed is already added')
   return { sources: [...sources, ...added], groups: nextGroups, group, added, writes }
 }
 
@@ -280,7 +287,7 @@ export async function addFeedSources (items, options = {}) {
   return result
 }
 
-// Commit the user's Site / RSS / Both choice in one storage write after every permission and feed
+// Commit the user's Site / Feed / Both choice in one storage write after every permission and feed
 // validation has succeeded. Either part may be omitted.
 export async function addSiteAndFeedSources ({ siteInput = null, feeds = [], groupId = null, groupName = '' } = {}) {
   const [hosts, sources, groups, settings] = await Promise.all([
@@ -301,7 +308,7 @@ export async function addSiteAndFeedSources ({ siteInput = null, feeds = [], gro
       feedResult = buildFeedAddition(sources, groups, feeds, { groupId, groupName })
     } catch (error) {
       // Choosing Both still adds a missing website when every selected feed already exists. An
-      // RSS-only duplicate remains an actionable error instead of creating an empty group.
+      // A feed-only duplicate remains an actionable error instead of creating an empty group.
       if (!siteInput || !/already added/.test(error?.message || '')) throw error
     }
   }
@@ -330,6 +337,118 @@ export async function setFeedSourceDisplay (id, patch) {
     ? { ...source, display: feedSourceDisplay({ display: { ...feedSourceDisplay(source), ...(patch || {}) } }) }
     : source)
   await browser.storage.local.set({ [KEYS.feedSources]: next })
+  return next
+}
+
+export async function setFeedSourceRefresh (id, patch) {
+  const sources = await getFeedSources()
+  if (!sources.some(source => source.id === id)) throw new Error('Feed source not found')
+  const next = sources.map(source => source.id === id
+    ? { ...source, refresh: feedSourceRefresh({ refresh: { ...feedSourceRefresh(source), ...(patch || {}) } }) }
+    : source)
+  const source = next.find(item => item.id === id)
+  const key = FEED_CACHE_PREFIX + id
+  const { [key]: cache } = await browser.storage.local.get(key)
+  const writes = { [KEYS.feedSources]: next }
+  if (cache) {
+    writes[key] = {
+      ...cache,
+      schedule: {
+        ...(cache.schedule || {}),
+        nextRefreshAt: source.refresh.mode === 'off' ? null : Date.now()
+      }
+    }
+  }
+  await browser.storage.local.set(writes)
+  return next
+}
+
+export function readLaterId (source, item) {
+  return `read-later:${source.id}\u001f${String(item.id)}`
+}
+
+function compactReadLaterItem (source, item, savedAt = Date.now()) {
+  const url = normalizeHttpUrl(item.url)
+  const audio = normalizeAudio(item.audio)
+  if (!url && !audio) throw new Error('This item has no safe link or audio URL')
+  return {
+    id: readLaterId(source, item),
+    sourceId: String(source.id),
+    source: {
+      id: String(source.id), type: String(source.type || 'rss'),
+      url: normalizeHttpUrl(source.url), title: String(item.sourceTitle || source.title || source.url || '').trim()
+    },
+    itemId: String(item.id), title: String(item.title || 'Untitled').trim() || 'Untitled',
+    url, publishedAt: typeof item.publishedAt === 'number' ? item.publishedAt : null,
+    savedAt: Number(savedAt) || Date.now(), imageUrl: normalizeHttpUrl(item.imageUrl),
+    description: Array.from(String(item.description || '')).slice(0, MAX_READ_LATER_DESCRIPTION_CHARS).join(''),
+    audio
+  }
+}
+
+export async function getReadLater () {
+  const { [KEYS.readLater]: items } = await browser.storage.local.get(KEYS.readLater)
+  return Array.isArray(items) ? items : []
+}
+
+export async function saveReadLater (source, item) {
+  const items = await getReadLater()
+  const snapshot = compactReadLaterItem(source, item)
+  if (items.some(existing => existing.id === snapshot.id)) return items
+  if (items.length >= MAX_READ_LATER_ITEMS) throw new Error(`Read Later is limited to ${MAX_READ_LATER_ITEMS} items`)
+  const next = [snapshot, ...items]
+  await browser.storage.local.set({ [KEYS.readLater]: next })
+  return next
+}
+
+export async function removeReadLater (id) {
+  const items = await getReadLater()
+  const next = items.filter(item => item.id !== id)
+  await browser.storage.local.set({ [KEYS.readLater]: next })
+  return next
+}
+
+export async function clearReadLater () {
+  await browser.storage.local.set({ [KEYS.readLater]: [] })
+  return []
+}
+
+export async function mergeReadLater (imported) {
+  const current = await getReadLater()
+  const byId = new Map(current.map(item => [item.id, item]))
+  for (const raw of imported || []) {
+    const source = raw?.source || { id: raw?.sourceId, type: raw?.sourceType, url: raw?.sourceUrl, title: raw?.sourceTitle }
+    if (!source?.id || raw?.itemId == null) continue
+    try {
+      const item = compactReadLaterItem(source, { ...raw, id: raw.itemId }, raw.savedAt)
+      if (!byId.has(item.id)) byId.set(item.id, item)
+    } catch { /* Skip invalid imported snapshots. */ }
+  }
+  if (byId.size > MAX_READ_LATER_ITEMS) throw new Error(`Import would exceed the ${MAX_READ_LATER_ITEMS}-item Read Later limit`)
+  const next = [...byId.values()].sort((a, b) => b.savedAt - a.savedAt)
+  await browser.storage.local.set({ [KEYS.readLater]: next })
+  return next
+}
+
+export async function getPodcastProgress () {
+  const { [KEYS.podcastProgress]: progress } = await browser.storage.local.get(KEYS.podcastProgress)
+  return progress && typeof progress === 'object' && !Array.isArray(progress) ? progress : {}
+}
+
+export async function setPodcastProgress (audioUrl, positionSeconds, durationSeconds, updatedAt = Date.now()) {
+  const url = normalizeHttpUrl(audioUrl)
+  if (!url) return getPodcastProgress()
+  const current = await getPodcastProgress()
+  const position = Math.max(0, Number(positionSeconds) || 0)
+  const duration = Math.max(0, Number(durationSeconds) || 0)
+  const complete = duration > 0 && (position / duration >= 0.95 || duration - position < 30)
+  if (complete || position < 1) delete current[url]
+  else current[url] = { positionSeconds: position, durationSeconds: duration || null, updatedAt }
+  const kept = Object.entries(current)
+    .sort((a, b) => (b[1]?.updatedAt || 0) - (a[1]?.updatedAt || 0))
+    .slice(0, MAX_PODCAST_PROGRESS_ITEMS)
+  const next = Object.fromEntries(kept)
+  await browser.storage.local.set({ [KEYS.podcastProgress]: next })
   return next
 }
 

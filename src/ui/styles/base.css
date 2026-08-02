@@ -10,13 +10,14 @@ body {
 a { color: var(--primary); }
 
 .app { margin: 0 auto; padding: 16px; }
+.app.has-player { padding-bottom: 104px; }
 
 .app-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .app-title { font-size: 20px; font-weight: 700; margin: 0; }
 .app-title .tld { color: var(--text-dim); font-weight: 400; }
 .spacer { flex: 1; }
 
-.tabs { display: flex; gap: 4px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
 .tab {
   background: transparent; border: 1px solid transparent; color: var(--text-dim);
   padding: 6px 12px; border-radius: 8px; cursor: pointer; font: inherit;
@@ -121,3 +122,7 @@ a { color: var(--primary); }
 .popup { width: 340px; padding: 12px; }
 .popup .host-row { margin-bottom: 6px; padding: 6px 8px; cursor: pointer; }
 .popup-load { font-size: 12px; color: var(--text-dim); }
+
+@media (max-width: 620px) {
+  .app.has-player { padding-bottom: 156px; }
+}
