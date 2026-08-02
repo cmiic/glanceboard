@@ -167,7 +167,7 @@ watch(() => props.reloadNonce, (next, previous) => { if (next !== previous) load
             v-if="item.url"
             :href="item.url"
             target="_blank"
-            rel="noopener"
+            rel="noopener noreferrer"
             class="feed-item-title"
           >{{ item.title }}</a>
           <span

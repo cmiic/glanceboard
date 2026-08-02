@@ -1,6 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildExportDocument, parseImportDocument } from '../src/lib/backup.js'
+import { buildExportDocument, normalizeImportFeed, parseImportDocument } from '../src/lib/backup.js'
+
+test('normalizeImportFeed persists the same canonical URL that validation accepts', () => {
+  assert.equal(normalizeImportFeed({ url: 'example.com/feed' }).url, 'https://example.com/feed')
+  assert.equal(normalizeImportFeed({ url: 'http://example.com/feed#fragment' }).url, 'http://example.com/feed')
+  assert.equal(normalizeImportFeed({ url: 'ftp://example.com/feed' }), null)
+  assert.equal(normalizeImportFeed({ url: 'javascript:alert(1)' }), null)
+})
 
 test('versioned export preserves sites, empty groups and feed membership', () => {
   const document = buildExportDocument(

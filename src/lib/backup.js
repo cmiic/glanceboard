@@ -1,4 +1,13 @@
 import { feedSourceDisplay } from './feed-settings.js'
+import { normalizeHttpUrl } from './rss.js'
+import { normalizeTarget } from './url.js'
+
+export function normalizeImportFeed (feed) {
+  const raw = String(feed?.url || '').trim()
+  if (!raw || (/^[a-z][a-z\d+.-]*:/i.test(raw) && !/^https?:\/\//i.test(raw))) return null
+  const url = normalizeHttpUrl(normalizeTarget(raw)?.url)
+  return url ? { ...feed, url } : null
+}
 
 export function buildExportDocument (hosts, groups, sources) {
   return {

@@ -6,7 +6,7 @@ import {
   getFeedGroups, getFeedSources, createFeedGroup, addFeedSources
 } from '@/lib/storage.js'
 import { normalizeTarget } from '@/lib/url.js'
-import { buildExportDocument, parseImportDocument } from '@/lib/backup.js'
+import { buildExportDocument, normalizeImportFeed, parseImportDocument } from '@/lib/backup.js'
 
 const props = defineProps({ settings: { type: Object, default: () => ({}) } })
 
@@ -102,7 +102,7 @@ async function doImport () {
   const validSites = pending.value.sites.filter(url => normalizeTarget(url))
   const validGroups = pending.value.feedGroups.map(group => ({
     ...group,
-    feeds: group.feeds.filter(feed => normalizeTarget(feed.url))
+    feeds: group.feeds.map(normalizeImportFeed).filter(Boolean)
   }))
   const feedCount = validGroups.reduce((count, group) => count + group.feeds.length, 0)
   const skipped = pending.value.sites.length - validSites.length +
