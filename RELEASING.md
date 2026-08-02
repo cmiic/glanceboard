@@ -105,12 +105,19 @@ Manifest V2 is required because Glanceboard strips X-Frame-Options / CSP frame-a
 blocking webRequest.onHeadersReceived listener) so the user's chosen sites can be shown as live
 <iframe> previews; Firefox MV3 forbids modifying those headers. The strip is scoped to our own
 dashboard's preview iframes only (sub_frame requests whose embedder is our extension page; see
-src/lib/headers.js and src/entrypoints/background.js). Host access is per-site and optional
-(optional_permissions), requested only when the user adds a site.
+src/lib/headers.js and src/entrypoints/background.js). Host access is per-site or per-feed and optional
+(optional_permissions), requested only when the user adds or imports that site or feed. Framing-header
+stripping remains allowlisted to saved website entries and is never enabled for feed-only origins.
+
+RSS is fetched only when the dashboard opens or the user refreshes a feed tile. Feed XML is capped at
+2 MB, rejects actual DOCTYPE declarations, and is parsed in a detached DOMParser document. Only
+normalized text and HTTP(S) links/image URLs are stored; feed markup is never rendered as HTML.
 
 How to test: open the dashboard (toolbar button -> Open dashboard) -> Sites tab -> add any public site
 (for example https://example.com); it appears as a live preview tile. A path may be added too (for
-example https://example.com/index.html) to watch a single page. No login required.
+example https://example.com/index.html) to watch a single page. To test RSS, add
+https://rss.orf.at/news.xml, confirm the detected feed and create a group; its headlines appear in one
+feed tile. Additional feeds can be moved into that group from the Feeds tab. No login required.
 
 Reproducible build: Node 24, then `npm install && npm run build` -> .output/firefox-mv2/.
 (npm install honors ignore-scripts=true; npm run build self-runs wxt prepare.)
@@ -160,6 +167,21 @@ longer requests every site simultaneously. Background checks are spaced the same
 
 Also fixes the load-time chart tooltip, which was only hoverable within a pixel or two of a data
 point, and restores the shaded area under the chart line.
+```
+
+For 0.4.0:
+
+```text
+Glanceboard can now discover and read RSS feeds alongside live website previews. When a site exposes
+a feed, choose whether to add the website, the feed, or both; direct RSS URLs work too.
+
+Organize feeds into groups such as Security or Fun. Each group becomes one dashboard tile with a
+newest-first headline list merged from all its feeds. Per-feed controls let you show or hide item
+images and descriptions and choose the description length. Feeds refresh when the dashboard opens or
+when you request it, with no background polling.
+
+Backups now include feed groups and their sources. This release also strengthens permission cleanup,
+redirect handling, bounded feed downloads, legacy text encoding, and safe RSS link/XML parsing.
 ```
 
 ## About the innerHTML validator warning
