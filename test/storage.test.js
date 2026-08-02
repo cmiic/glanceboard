@@ -110,6 +110,9 @@ test('feed groups: create, rename, enforce unique names and move sources', async
   const first = await storage.createFeedGroup('Security')
   const second = await storage.createFeedGroup('Fun')
   await assert.rejects(storage.createFeedGroup(' security '), /already exists/)
+  const writesBeforeUnknownMove = storageSetCalls.length
+  await assert.rejects(storage.moveFeedSource('rss:https://missing.example/feed', first.id), /Feed source not found/)
+  assert.equal(storageSetCalls.length, writesBeforeUnknownMove)
   await storage.addFeedSources([{ url: 'https://example.com/feed', title: 'Example' }], { groupId: first.id })
   let sources = await storage.getFeedSources()
   assert.equal(sources[0].id, 'rss:https://example.com/feed')

@@ -278,6 +278,7 @@ export async function addSiteAndFeedSources ({ siteInput = null, feeds = [], gro
 export async function moveFeedSource (id, groupId) {
   const [sources, groups] = await Promise.all([getFeedSources(), getFeedGroups()])
   if (!groups.some(group => group.id === groupId)) throw new Error('Feed group not found')
+  if (!sources.some(source => source.id === id)) throw new Error('Feed source not found')
   const next = sources.map(source => source.id === id ? { ...source, groupId } : source)
   await browser.storage.local.set({ [KEYS.feedSources]: next })
   return next

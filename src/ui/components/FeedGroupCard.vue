@@ -183,7 +183,7 @@ watch(() => props.reloadNonce, (next, previous) => { if (next !== previous) load
         </p>
         <div class="feed-item-meta">
           <span>{{ item.sourceTitle }}</span>
-          <time v-if="item.publishedAt">{{ itemDate(item.publishedAt) }}</time>
+          <time v-if="typeof item.publishedAt === 'number'">{{ itemDate(item.publishedAt) }}</time>
         </div>
       </article>
     </div>
