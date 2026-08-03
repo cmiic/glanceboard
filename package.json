@@ -39,9 +39,9 @@
     "globals": "17.8.0",
     "linkedom": "0.18.13",
     "markdownlint-cli2": "0.23.2",
-    "vite": "8.1.5",
+    "vite": "8.2.0",
     "vue-eslint-parser": "10.4.1",
-    "wxt": "0.21.1"
+    "wxt": "0.21.2"
   },
   "overrides": {
     "tmp": "0.2.7",
