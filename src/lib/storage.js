@@ -165,9 +165,21 @@ export async function mergeFeedReadState (imported) {
 
   const current = await getFeedReadStates(matched.map(entry => entry.source.id))
   const writes = {}
+  const changedBySource = new Map()
   for (const { source, items } of matched) {
-    const merged = normalizeFeedReadItems([...(current[source.id]?.items || []), ...items])
-    if (merged.length) writes[FEED_READ_PREFIX + source.id] = { items: merged }
+    const previous = current[source.id]?.items || []
+    const previousById = new Map(previous.map(item => [item.id, item]))
+    const merged = normalizeFeedReadItems([...previous, ...items])
+    const mergedById = new Map(merged.map(item => [item.id, item]))
+    const changed = items.reduce((count, item) => {
+      const before = previousById.get(item.id)
+      const after = mergedById.get(item.id)
+      return count + (after && (!before || after.readAt !== before.readAt) ? 1 : 0)
+    }, 0)
+    if (changed) {
+      writes[FEED_READ_PREFIX + source.id] = { items: merged }
+      changedBySource.set(source.id, changed)
+    }
   }
   if (Object.keys(writes).length) await browser.storage.local.set(writes)
   const existingAfter = new Set((await getFeedSources()).map(source => source.id))
@@ -178,8 +190,8 @@ export async function mergeFeedReadState (imported) {
   }
   return {
     states: Object.fromEntries(Object.entries(writes).map(([key, value]) => [key.slice(FEED_READ_PREFIX.length), value])),
-    importedCount: matched.reduce((count, entry) =>
-      count + (existingAfter.has(entry.source.id) ? entry.items.length : 0), 0)
+    importedCount: [...changedBySource].reduce((count, [sourceId, changed]) =>
+      count + (existingAfter.has(sourceId) ? changed : 0), 0)
   }
 }
 

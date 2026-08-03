@@ -178,13 +178,20 @@ test('feed read state imports by canonical URL and removes orphans and deletion 
   const { added } = await storage.addFeedSources([{ url: 'https://example.com/feed' }], { groupId: group.id })
   const source = added[0]
   await storage.setFeedItemRead(source.id, 'local', true, 1)
-  await storage.mergeFeedReadState([
+  const firstImport = await storage.mergeFeedReadState([
     { sourceUrl: 'https://example.com/feed#ignored', items: [{ id: 'imported', readAt: 2 }] },
     { sourceUrl: 'https://missing.example/feed', items: [{ id: 'missing', readAt: 3 }] }
   ])
+  assert.equal(firstImport.importedCount, 1)
   assert.deepEqual((await storage.getFeedReadStates([source.id]))[source.id].items, [
     { id: 'imported', readAt: 2 }, { id: 'local', readAt: 1 }
   ])
+  assert.equal((await storage.mergeFeedReadState([
+    { sourceUrl: 'https://example.com/feed', items: [{ id: 'imported', readAt: 2 }] }
+  ])).importedCount, 0)
+  assert.equal((await storage.mergeFeedReadState([
+    { sourceUrl: 'https://example.com/feed', items: [{ id: 'imported', readAt: 5 }] }
+  ])).importedCount, 1)
 
   data['feed-read:orphan'] = { items: [{ id: 'old', readAt: 1 }] }
   assert.deepEqual(await storage.reconcileFeedReadState(), ['feed-read:orphan'])

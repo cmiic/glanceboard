@@ -28,17 +28,20 @@ export function normalizeFeedReadItems (items, limit = MAX_FEED_READ_ITEMS) {
 
 export function prepareFeedItems (items, states, filter = 'unread', limit = MAX_GROUP_ITEMS) {
   const readIdsBySource = new Map()
+  let readCount = 0
   const annotated = (items || []).map(item => {
     let readIds = readIdsBySource.get(item.sourceId)
     if (!readIds) {
       readIds = new Set(normalizeFeedReadItems(states?.[item.sourceId]?.items).map(entry => entry.id))
       readIdsBySource.set(item.sourceId, readIds)
     }
-    return { ...item, isRead: readIds.has(String(item.id)) }
+    const isRead = readIds.has(String(item.id))
+    if (isRead) readCount++
+    return { ...item, isRead }
   })
   const counts = {
-    unread: annotated.reduce((count, item) => count + (item.isRead ? 0 : 1), 0),
-    read: annotated.reduce((count, item) => count + (item.isRead ? 1 : 0), 0),
+    unread: annotated.length - readCount,
+    read: readCount,
     all: annotated.length
   }
   const active = FEED_ITEM_FILTERS.includes(filter) ? filter : 'unread'
