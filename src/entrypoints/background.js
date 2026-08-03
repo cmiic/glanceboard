@@ -157,6 +157,12 @@ export default defineBackground({
         }
       } finally {
         feedQueueRunning = false
+        // JavaScript currently reaches this point without yielding after the final empty check,
+        // but re-check after releasing the lock so a future await at that boundary cannot strand a
+        // job whose enqueue attempt observed feedQueueRunning=true.
+        if (pendingFeedJobs.length) {
+          drainFeedQueue().catch(error => console.error('Glanceboard feed queue re-drain failed', error))
+        }
       }
     }
 

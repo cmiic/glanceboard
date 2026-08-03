@@ -38,6 +38,16 @@ test('inspectTarget recognizes direct Atom and JSON Feed documents', async () =>
   }
 })
 
+test('inspectTarget does not classify a generic JSON endpoint as JSON Feed', async () => {
+  const result = await inspectTarget('https://example.com/api', {
+    Parser: DOMParser, includeOrf: false,
+    fetchImpl: async url => String(url).endsWith('/api')
+      ? new Response('{"status":"ok"}', { headers: { 'content-type': 'application/json' } })
+      : new Response('missing', { status: 404 })
+  })
+  assert.deepEqual(result, { kind: 'page', pageUrl: 'https://example.com/api', candidates: [] })
+})
+
 test('ORF adapter recognizes podcast pages and returns the API feed candidate', async () => {
   const page = 'https://sound.orf.at/podcast/oe1/oe1-matrix'
   assert.equal(orfDiscoveryRequest(page).apiUrl, 'https://audioapi.orf.at/radiothek/api/2.0/podcast/oe1/oe1-matrix')

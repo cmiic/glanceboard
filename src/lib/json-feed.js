@@ -55,8 +55,14 @@ export function parseJsonFeed (text, { url, Parser = globalThis.DOMParser } = {}
 }
 
 export function sniffJsonFeed (body, contentType = '') {
-  if (/application\/(?:feed\+json|json)\b/i.test(contentType)) return true
-  return /^\s*\{/.test(String(body || '')) && /["']?version["']?\s*:/.test(String(body || '').slice(0, 1024))
+  if (/application\/feed\+json\b/i.test(contentType)) return true
+  try {
+    const document = JSON.parse(String(body || ''))
+    return !!document && typeof document === 'object' &&
+      SUPPORTED_VERSIONS.has(document.version) && Array.isArray(document.items)
+  } catch {
+    return false
+  }
 }
 
 export async function fetchJsonFeed (url, {

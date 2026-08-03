@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DOMParser } from 'linkedom'
-import { fetchJsonFeed, parseJsonFeed } from '../src/lib/json-feed.js'
+import { fetchJsonFeed, parseJsonFeed, sniffJsonFeed } from '../src/lib/json-feed.js'
 
 test('parseJsonFeed supports 1.0/1.1 content, images, dates and audio attachments', () => {
   for (const version of ['https://jsonfeed.org/version/1', 'https://jsonfeed.org/version/1.1']) {
@@ -26,6 +26,16 @@ test('parseJsonFeed rejects malformed JSON and unsupported documents', () => {
   assert.throws(() => parseJsonFeed('{', { url: 'https://x.test', Parser: DOMParser }), /Malformed/)
   assert.throws(() => parseJsonFeed('{}', { url: 'https://x.test', Parser: DOMParser }), /supported JSON Feed/)
   assert.throws(() => parseJsonFeed(JSON.stringify({ version: 'https://jsonfeed.org/version/2', items: [] }), { url: 'https://x.test', Parser: DOMParser }), /supported JSON Feed/)
+})
+
+test('sniffJsonFeed rejects generic JSON unless it has JSON Feed structure', () => {
+  const feed = JSON.stringify({ version: 'https://jsonfeed.org/version/1.1', items: [] })
+  assert.equal(sniffJsonFeed(feed, 'application/json'), true)
+  assert.equal(sniffJsonFeed(feed, 'text/plain'), true)
+  assert.equal(sniffJsonFeed('{"status":"ok"}', 'application/json'), false)
+  assert.equal(sniffJsonFeed('{"version":"https://jsonfeed.org/version/1.1"}', 'application/json'), false)
+  assert.equal(sniffJsonFeed('{', 'application/json'), false)
+  assert.equal(sniffJsonFeed('{', 'application/feed+json'), true)
 })
 
 test('fetchJsonFeed enforces conditional 304 behavior', async () => {
