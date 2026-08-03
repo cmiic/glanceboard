@@ -109,15 +109,22 @@ src/lib/headers.js and src/entrypoints/background.js). Host access is per-site o
 (optional_permissions), requested only when the user adds or imports that site or feed. Framing-header
 stripping remains allowlisted to saved website entries and is never enabled for feed-only origins.
 
-RSS is fetched only when the dashboard opens or the user refreshes a feed tile. Feed XML is capped at
-2 MB, rejects actual DOCTYPE declarations, and is parsed in a detached DOMParser document. Only
-normalized text and HTTP(S) links/image URLs are stored; feed markup is never rendered as HTML.
+RSS, Atom, and JSON Feed sources are fetched when the dashboard opens or the user refreshes a feed
+tile. Optional background feed refresh is globally off by default; when enabled, a single one-shot
+alarm refreshes due sources sequentially using per-feed adaptive, fixed, or Off settings. Feed
+responses are capped at 2 MB; XML rejects actual DOCTYPE declarations and is parsed in a detached
+DOMParser document. Only normalized text and HTTP(S) links/image/audio URLs are stored; feed markup
+is never rendered as HTML. Podcast audio is streamed from its enclosure host only after the user
+starts playback and is never cached. Read Later stores compact item metadata snapshots locally.
 
 How to test: open the dashboard (toolbar button -> Open dashboard) -> Sites tab -> add any public site
 (for example https://example.com); it appears as a live preview tile. A path may be added too (for
 example https://example.com/index.html) to watch a single page. To test RSS, add
 https://rss.orf.at/news.xml, confirm the detected feed and create a group; its headlines appear in one
 feed tile. Additional feeds can be moved into that group from the Feeds tab. No login required.
+Atom and JSON Feed URLs can be added the same way. Podcast enclosures show a play button, and feed
+items can be saved to the dashboard's Read Later tab. To test opt-in polling, enable background feed
+refresh in Settings and choose Auto, fixed, or Off for a source in Feeds.
 
 Reproducible build: Node 24, then `npm install && npm run build` -> .output/firefox-mv2/.
 (npm install honors ignore-scripts=true; npm run build self-runs wxt prepare.)
@@ -182,6 +189,24 @@ when you request it, with no background polling.
 
 Backups now include feed groups and their sources. This release also strengthens permission cleanup,
 redirect handling, bounded feed downloads, legacy text encoding, and safe RSS link/XML parsing.
+```
+
+For 0.5.0:
+
+```text
+Feeds now support Atom and JSON Feed alongside RSS, with automatic discovery and the same safe,
+bounded parsing and caching.
+
+Podcast episodes can be streamed in a sticky dashboard player with seeking, playback speeds, and
+local resume positions. Save feed items to the new Read Later tab so they remain available even if
+their original feed is later removed.
+
+Optional background feed refresh is globally off by default. When enabled, each feed can adapt its
+schedule to recent publication times, use a fixed interval, or disable background checks. Refreshes
+remain sequential and keep stale headlines visible when one source fails.
+
+This release also improves feed discovery, permission handling, backup/restore, scheduling, and
+cache efficiency.
 ```
 
 ## About the innerHTML validator warning
