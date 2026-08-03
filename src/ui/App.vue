@@ -2,7 +2,7 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { browser } from '@/lib/browser.js'
 import {
-  getHosts, getAllResults, getSettings, getFeedGroups, getFeedSources, getAllFeedCaches,
+  getHosts, getAllResults, getSettings, getFeedGroups, getFeedSources, getFeedCaches,
   getReadLater, onChanged, entryLabel
 } from '@/lib/storage.js'
 import { isCertExpiringSoon, isLoadSlow, isStale } from '@/lib/thresholds.js'
@@ -31,9 +31,10 @@ const nonEmptyFeedGroups = computed(() => feedGroups.value.filter(group =>
 const savedIds = computed(() => new Set(readLater.value.map(item => item.id)))
 
 async function refresh () {
-  const [h, r, s, groups, sources, caches, saved] = await Promise.all([
-    getHosts(), getAllResults(), getSettings(), getFeedGroups(), getFeedSources(), getAllFeedCaches(), getReadLater()
+  const [h, r, s, groups, sources, saved] = await Promise.all([
+    getHosts(), getAllResults(), getSettings(), getFeedGroups(), getFeedSources(), getReadLater()
   ])
+  const caches = await getFeedCaches(sources.map(source => source.id))
   hosts.value = h
   results.value = r
   settings.value = s

@@ -1,10 +1,7 @@
-export const MAX_RSS_BYTES = 2 * 1024 * 1024
-export const MAX_RSS_ITEMS = 50
+export const MAX_FEED_BYTES = 2 * 1024 * 1024
+export const MAX_FEED_ITEMS = 50
 export const MAX_GROUP_ITEMS = 30
-export const MAX_RSS_DESCRIPTION_CHARS = 10000
-export const MAX_FEED_BYTES = MAX_RSS_BYTES
-export const MAX_FEED_ITEMS = MAX_RSS_ITEMS
-export const MAX_FEED_DESCRIPTION_CHARS = MAX_RSS_DESCRIPTION_CHARS
+export const MAX_FEED_DESCRIPTION_CHARS = 10000
 const RDF_NAMESPACE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#'
 const AUDIO_EXTENSIONS = /\.(?:mp3|m4a|aac|ogg|oga|opus|wav|flac)(?:$|[?#])/i
 
@@ -215,14 +212,14 @@ export function parseRss (xml, { url, Parser = globalThis.DOMParser } = {}) {
     const publishedAt = safeDate(childText(itemNode, 'pubDate') || childText(itemNode, 'date'))
     const descriptionMarkup = childText(itemNode, 'description') || childText(itemNode, 'encoded')
     const description = Array.from(descriptionText(descriptionMarkup, Parser))
-      .slice(0, MAX_RSS_DESCRIPTION_CHARS).join('')
+      .slice(0, MAX_FEED_DESCRIPTION_CHARS).join('')
     const imageUrl = itemImage(itemNode, descriptionMarkup, url, Parser)
     const audio = itemAudio(itemNode, url)
     const id = guid || link || `${publishedAt ?? ''}:${title}`
     if (seen.has(id)) continue
     seen.add(id)
     items.push({ id, title, url: link, publishedAt, description, imageUrl, audio })
-    if (items.length >= MAX_RSS_ITEMS) break
+    if (items.length >= MAX_FEED_ITEMS) break
   }
 
   return { channel: { title: channelTitle, url: channelLink }, items }
@@ -285,7 +282,7 @@ async function readBoundedBytes (response, maxBytes) {
   return bytes
 }
 
-export async function readBoundedResponseText (response, { maxBytes = MAX_RSS_BYTES } = {}) {
+export async function readBoundedResponseText (response, { maxBytes = MAX_FEED_BYTES } = {}) {
   const bytes = await readBoundedBytes(response, maxBytes)
   return decodeXml(bytes, response.headers.get('content-type') || '')
 }
@@ -295,7 +292,7 @@ export async function fetchRss (url, {
   fetchImpl = globalThis.fetch,
   Parser = globalThis.DOMParser,
   timeoutMs = 15000,
-  maxBytes = MAX_RSS_BYTES,
+  maxBytes = MAX_FEED_BYTES,
   now = () => Date.now()
 } = {}) {
   const requestedUrl = normalizeHttpUrl(url)

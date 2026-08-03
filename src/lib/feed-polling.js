@@ -20,7 +20,6 @@ export function estimateFeedCadence (items, now = Date.now()) {
     const gap = (dates[i - 1] - dates[i]) / 60000
     if (gap > 0) gaps.push(gap)
   }
-  if (gaps.length < 2) return AUTO_FALLBACK_MINUTES
   gaps.sort((a, b) => a - b)
   const middle = Math.floor(gaps.length / 2)
   const median = gaps.length % 2 ? gaps[middle] : (gaps[middle - 1] + gaps[middle]) / 2
@@ -33,20 +32,16 @@ export function feedHasNewItems (previous, next) {
   return (next?.items || []).some(item => !oldIds.has(String(item.id)))
 }
 
-function configuredBaseMinutes (source, items, now) {
-  const refresh = feedSourceRefresh(source)
-  if (refresh.mode === 'off') return null
-  if (refresh.mode === 'fixed') return refresh.intervalMinutes
-  return estimateFeedCadence(items, now)
-}
-
 export function scheduleSuccessfulFeedCache (source, previous, result, now = Date.now()) {
   const hasNew = !result.notModified && feedHasNewItems(previous, result.cache)
   const priorUnchanged = Number(previous?.schedule?.unchangedCount) || 0
   const unchangedCount = previous && !hasNew ? priorUnchanged + 1 : 0
   const cadenceMinutes = estimateFeedCadence(result.cache.items, now)
-  const base = configuredBaseMinutes(source, result.cache.items, now)
-  const multiplier = feedSourceRefresh(source).mode === 'auto' ? 2 ** Math.floor(unchangedCount / 3) : 1
+  const configured = feedSourceRefresh(source)
+  const base = configured.mode === 'off'
+    ? null
+    : configured.mode === 'fixed' ? configured.intervalMinutes : cadenceMinutes
+  const multiplier = configured.mode === 'auto' ? 2 ** Math.floor(unchangedCount / 3) : 1
   const interval = base == null ? null : Math.min(AUTO_MAX_MINUTES, base * multiplier)
   return {
     ...result.cache,
@@ -69,7 +64,7 @@ export function scheduleFailedFeedCache (source, previous, error, now = Date.now
     : configured.mode === 'fixed' ? configured.intervalMinutes : cadenceMinutes
   const retryMinutes = base == null
     ? null
-    : Math.min(AUTO_MAX_MINUTES, Math.max(base, AUTO_MIN_MINUTES * 2 ** (failureCount - 1)))
+    : Math.min(AUTO_MAX_MINUTES, base * 2 ** (failureCount - 1))
   return {
     ...(previous || { fetchedAt: null, etag: null, lastModified: null, channel: null, items: [] }),
     error: { message: error?.message || String(error), at: now },

@@ -9,10 +9,13 @@ const ATOM_NAMESPACE = 'http://www.w3.org/2005/Atom'
 function atomChildren (node, name) {
   return directChildren(node, name).filter(child => {
     if (!child.namespaceURI || child.namespaceURI === ATOM_NAMESPACE) return true
-    if (child.namespaceURI !== 'http://www.w3.org/1999/xhtml') return false
+    const root = node?.ownerDocument?.documentElement || node
+    const parserLostDefaultNamespace = root?.namespaceURI !== ATOM_NAMESPACE &&
+      root?.getAttribute?.('xmlns') === ATOM_NAMESPACE
+    if (!parserLostDefaultNamespace || child.namespaceURI !== 'http://www.w3.org/1999/xhtml') return false
     const qualified = String(child.nodeName || '').toLowerCase()
-    // linkedom assigns the XHTML namespace to XML elements, so fall back to qualified names in
-    // Node tests while still excluding extension elements such as media:content.
+    // linkedom loses XML default namespaces and assigns XHTML instead. Limit this fallback to DOMs
+    // where the root exhibits that bug, so real browser DOMs never widen Atom child matching.
     return !qualified.includes(':') || qualified.startsWith('atom:')
   })
 }

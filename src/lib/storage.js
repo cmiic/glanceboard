@@ -83,13 +83,20 @@ export async function getFeedGroups () {
   return Array.isArray(groups) ? groups : []
 }
 
+export async function getFeedCaches (sourceIds) {
+  const ids = [...new Set((sourceIds || []).filter(id => typeof id === 'string' && id))]
+  if (!ids.length) return {}
+  const keys = ids.map(id => FEED_CACHE_PREFIX + id)
+  const stored = await browser.storage.local.get(keys)
+  return Object.fromEntries(ids.flatMap(id => {
+    const cache = stored?.[FEED_CACHE_PREFIX + id]
+    return cache == null ? [] : [[id, cache]]
+  }))
+}
+
 export async function getAllFeedCaches () {
-  const all = await browser.storage.local.get(null)
-  const out = {}
-  for (const key of Object.keys(all || {})) {
-    if (key.startsWith(FEED_CACHE_PREFIX)) out[key.slice(FEED_CACHE_PREFIX.length)] = all[key]
-  }
-  return out
+  const sources = await getFeedSources()
+  return getFeedCaches(sources.map(source => source.id))
 }
 
 // Vue makes objects placed in refs deeply reactive. Firefox storage uses the structured-clone
@@ -413,8 +420,7 @@ export async function clearReadLater () {
   return []
 }
 
-export async function mergeReadLater (imported) {
-  const current = await getReadLater()
+function mergedReadLaterItems (current, imported) {
   const byId = new Map(current.map(item => [item.id, item]))
   for (const raw of imported || []) {
     const source = raw?.source || { id: raw?.sourceId, type: raw?.sourceType, url: raw?.sourceUrl, title: raw?.sourceTitle }
@@ -425,7 +431,15 @@ export async function mergeReadLater (imported) {
     } catch { /* Skip invalid imported snapshots. */ }
   }
   if (byId.size > MAX_READ_LATER_ITEMS) throw new Error(`Import would exceed the ${MAX_READ_LATER_ITEMS}-item Read Later limit`)
-  const next = [...byId.values()].sort((a, b) => b.savedAt - a.savedAt)
+  return [...byId.values()].sort((a, b) => b.savedAt - a.savedAt)
+}
+
+export async function previewReadLaterMerge (imported) {
+  return mergedReadLaterItems(await getReadLater(), imported)
+}
+
+export async function mergeReadLater (imported) {
+  const next = await previewReadLaterMerge(imported)
   await browser.storage.local.set({ [KEYS.readLater]: next })
   return next
 }
@@ -439,11 +453,14 @@ export async function setPodcastProgress (audioUrl, positionSeconds, durationSec
   const url = normalizeHttpUrl(audioUrl)
   if (!url) return getPodcastProgress()
   const current = await getPodcastProgress()
-  const position = Math.max(0, Number(positionSeconds) || 0)
-  const duration = Math.max(0, Number(durationSeconds) || 0)
-  const complete = duration > 0 && (position / duration >= 0.95 || duration - position < 30)
+  const rawPosition = Number(positionSeconds)
+  const rawDuration = Number(durationSeconds)
+  const position = Number.isFinite(rawPosition) ? Math.max(0, rawPosition) : 0
+  const duration = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : null
+  const complete = duration != null &&
+    (position / duration >= 0.95 || (duration > 30 && duration - position < 30))
   if (complete || position < 1) delete current[url]
-  else current[url] = { positionSeconds: position, durationSeconds: duration || null, updatedAt }
+  else current[url] = { positionSeconds: position, durationSeconds: duration, updatedAt }
   const kept = Object.entries(current)
     .sort((a, b) => (b[1]?.updatedAt || 0) - (a[1]?.updatedAt || 0))
     .slice(0, MAX_PODCAST_PROGRESS_ITEMS)

@@ -4,13 +4,16 @@ import { DOMParser } from 'linkedom'
 
 const data = {}
 const setCalls = []
+const getCalls = []
 globalThis.DOMParser = DOMParser
 globalThis.browser = {
   storage: {
     local: {
       async get (key) {
+        getCalls.push(key)
         if (key == null) return { ...data }
         if (typeof key === 'string') return key in data ? { [key]: data[key] } : {}
+        if (Array.isArray(key)) return Object.fromEntries(key.filter(item => item in data).map(item => [item, data[item]]))
         return {}
       },
       async set (values) { setCalls.push(Object.keys(values)); Object.assign(data, structuredClone(values)) },
@@ -26,6 +29,7 @@ const { refreshFeedSources } = await import('../src/lib/feed-refresh.js')
 beforeEach(() => {
   for (const key of Object.keys(data)) delete data[key]
   setCalls.length = 0
+  getCalls.length = 0
 })
 
 test('refreshFeedSources refreshes sequentially and batches successful caches', async () => {
@@ -54,6 +58,10 @@ test('refreshFeedSources refreshes sequentially and batches successful caches', 
     assert.deepEqual(new Set(setCalls.at(-1)), new Set([
       'feed-cache:rss:https://a.test/feed', 'feed-cache:rss:https://b.test/feed'
     ]))
+    assert.equal(getCalls.includes(null), false)
+    assert.deepEqual(getCalls.find(Array.isArray), [
+      'feed-cache:rss:https://a.test/feed', 'feed-cache:rss:https://b.test/feed'
+    ])
   } finally {
     globalThis.fetch = originalFetch
   }

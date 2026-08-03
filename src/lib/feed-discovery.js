@@ -10,8 +10,7 @@ const TYPE_BY_MEDIA = new Map([
   ['application/rss+xml', 'rss'],
   ['application/rdf+xml', 'rss'],
   ['application/atom+xml', 'atom'],
-  ['application/feed+json', 'jsonfeed'],
-  ['application/json', 'jsonfeed']
+  ['application/feed+json', 'jsonfeed']
 ])
 
 export function registerDiscoveryStrategy (strategy) {
@@ -171,8 +170,7 @@ function cacheFromParsedResponse (parsed, response, now = Date.now()) {
   }
 }
 
-function parseDetectedFeed (body, contentType, url, response, Parser) {
-  const matching = matchingFeedAdapters(body, contentType)
+function parseDetectedFeed (body, contentType, url, response, Parser, matching = matchingFeedAdapters(body, contentType)) {
   let firstError = null
   for (const adapter of matching) {
     try {
@@ -222,12 +220,14 @@ export async function inspectTarget (pageUrl, {
   }
   if (!response.ok) throw new Error(`Site request failed (${response.status})`)
 
-  const finalPageUrl = response.url || pageUrl
+  const finalPageUrl = normalizeHttpUrl(response.url || pageUrl)
+  if (!finalPageUrl) throw new Error('Site redirected to an unsupported URL')
   const contentType = response.headers.get('content-type') || ''
   const body = await readBoundedResponseText(response)
+  const matching = matchingFeedAdapters(body, contentType)
   let directError
   try {
-    const direct = parseDetectedFeed(body, contentType, finalPageUrl, response, Parser)
+    const direct = parseDetectedFeed(body, contentType, finalPageUrl, response, Parser, matching)
     if (direct) return {
       kind: 'feed', pageUrl: finalPageUrl,
       candidates: [{ type: direct.type, url: direct.url, title: direct.cache.channel.title, validated: direct.cache }]
@@ -237,7 +237,7 @@ export async function inspectTarget (pageUrl, {
   }
   // A response explicitly declaring a feed media type must not silently become a website tile when
   // malformed. Generic XML/JSON is treated as a feed only after a successful content validation.
-  const looksLikeFeed = matchingFeedAdapters(body, '').length > 0
+  const looksLikeFeed = matching.length > 0
   if (/application\/(?:rss|rdf|atom)\+xml|application\/feed\+json/i.test(contentType) || looksLikeFeed) throw directError
 
   let found = [

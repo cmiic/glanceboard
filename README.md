@@ -60,10 +60,12 @@ security-sensitive headers). Firefox is also the only mainstream browser with ex
   as well as to create or rename groups, move feeds, configure background refresh, re-grant access,
   or remove them.
 - Feed data is fetched sequentially when the dashboard opens and when you press a feed tile's refresh
-  button. The latest 50 normalized items per feed are cached locally, so a temporary failure leaves
-  the previous headlines visible. Optional background refresh is globally off by default; when
-  enabled, each feed can be Off, fixed at 15 minutes–24 hours, or Auto (adapting hourly–daily from
-  recent publication dates). Background refresh never creates feed notifications.
+  button. With background polling off, opening checks every feed; with polling enabled, it checks
+  only missing or scheduled-due feeds. A tile's refresh button always checks immediately. The latest
+  50 normalized items per feed are cached locally, so a temporary failure leaves the previous
+  headlines visible. Optional background refresh is globally off by default; when enabled, each feed
+  can be Off, fixed at 15 minutes–24 hours, or Auto (adapting hourly–daily from recent publication
+  dates). Background refresh never creates feed notifications.
 - RSS 1.0/2.0, Atom, and JSON Feed 1.0/1.1 are supported. Remote markup is reduced to plain text.
   Podcast enclosures and audio attachments can be streamed in one dashboard-scoped player with
   seeking, playback speed, and local resume positions.
@@ -125,7 +127,8 @@ Publishing to AMO — build, submit, and the reviewer notes — is documented in
 - **Notifications** — local alert when a host goes down (only while checks are on).
 - **Card size** and **Layout** (auto / desktop / mobile).
 - **Export / Import** sites, typed feeds, feed-group membership, polling choices, and Read Later as
-  versioned JSON. Existing host-only and older feed exports remain importable.
+  versioned JSON. Feed caches, global settings, and podcast resume positions are not exported.
+  Existing host-only and older feed exports remain importable.
 
 ## Opening it / setting it as your home page
 

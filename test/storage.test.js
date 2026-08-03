@@ -15,6 +15,7 @@ globalThis.browser = {
       async get (key) {
         if (key == null) return { ...data }
         if (typeof key === 'string') return key in data ? { [key]: data[key] } : {}
+        if (Array.isArray(key)) return Object.fromEntries(key.filter(item => item in data).map(item => [item, data[item]]))
         return {}
       },
       // Firefox storage structured-clones values and rejects Proxy objects. Mirroring that here
@@ -187,6 +188,12 @@ test('Read Later enforces its cap without silently evicting', async () => {
     { id: 's', type: 'rss', url: 'https://example.com/feed' },
     { id: 'overflow', title: 'Overflow', url: 'https://example.com/overflow' }
   ), /limited to 500/)
+  const writesBeforePreview = storageSetCalls.length
+  await assert.rejects(storage.previewReadLaterMerge([{
+    source: { id: 's', type: 'rss', url: 'https://example.com/feed', title: 'Feed' },
+    itemId: 'import-overflow', title: 'Imported overflow', url: 'https://example.com/import-overflow'
+  }]), /exceed the 500-item/)
+  assert.equal(storageSetCalls.length, writesBeforePreview)
   assert.equal((await storage.getReadLater()).length, original)
 })
 
@@ -195,6 +202,10 @@ test('podcast progress resumes, clears near completion and retains the newest 10
   assert.equal((await storage.getPodcastProgress())['https://cdn.example.com/episode.mp3'].positionSeconds, 120)
   await storage.setPodcastProgress('https://cdn.example.com/episode.mp3', 580, 600, 2)
   assert.equal((await storage.getPodcastProgress())['https://cdn.example.com/episode.mp3'], undefined)
+  await storage.setPodcastProgress('https://cdn.example.com/short.mp3', 10, 20, 3)
+  assert.equal((await storage.getPodcastProgress())['https://cdn.example.com/short.mp3'].positionSeconds, 10)
+  await storage.setPodcastProgress('https://cdn.example.com/live.mp3', 10, Infinity, 4)
+  assert.equal((await storage.getPodcastProgress())['https://cdn.example.com/live.mp3'].durationSeconds, null)
   for (let index = 0; index < 105; index++) {
     await storage.setPodcastProgress(`https://cdn.example.com/${index}.mp3`, 10, 1000, index)
   }

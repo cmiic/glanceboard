@@ -38,7 +38,10 @@ test('fixed/off modes, failures and due selection are respected', () => {
   const off = { id: 'off', refresh: { mode: 'off' } }
   const failed = scheduleFailedFeedCache(fixed, null, new Error('offline'), now)
   assert.equal(failed.schedule.failureCount, 1)
-  assert.equal(failed.schedule.nextRefreshAt, now + hour)
+  assert.equal(failed.schedule.nextRefreshAt, now + 15 * 60000)
+  const failedAgain = scheduleFailedFeedCache(fixed, failed, new Error('offline'), now)
+  assert.equal(failedAgain.schedule.failureCount, 2)
+  assert.equal(failedAgain.schedule.nextRefreshAt, now + 30 * 60000)
   assert.equal(feedIsDue(off, null, now), false)
   assert.equal(feedIsDue(fixed, { schedule: { nextRefreshAt: now } }, now), true)
   assert.equal(feedIsDue(fixed, null, now, { pollingEnabled: false }), false)

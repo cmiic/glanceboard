@@ -4,10 +4,11 @@ import { stripFramingHeaders, isFromOwnExtension, isApprovedTarget } from '@/lib
 import { checkHost } from '@/lib/monitor.js'
 import { stepDelay, delayUntilSlot } from '@/lib/schedule.js'
 import { refreshFeedSources } from '@/lib/feed-refresh.js'
+import { createFeedRefreshQueue } from '@/lib/feed-refresh-queue.js'
 import { nextFeedRefreshAt } from '@/lib/feed-polling.js'
 import {
   getHosts, getSettings, pushResult, ensureSeeded, migrateResultsToPerKey,
-  reconcileOriginPermissions, entryOrigin, entryLabel, getFeedSources, getAllFeedCaches
+  reconcileOriginPermissions, entryOrigin, entryLabel, getFeedSources, getFeedCaches
 } from '@/lib/storage.js'
 
 // Firefox MV2 persistent background page. WXT imports this file in Node at build time to read the
@@ -131,61 +132,27 @@ export default defineBackground({
       }
     }
 
-    const pendingFeedJobs = []
-    let feedQueueRunning = false
-
-    async function drainFeedQueue () {
-      if (feedQueueRunning) return
-      feedQueueRunning = true
-      try {
-        while (pendingFeedJobs.length) {
-          // A user-forced refresh goes ahead of queued automatic/dashboard-due work, but never
-          // interrupts a refresh batch already in flight.
-          pendingFeedJobs.sort((a, b) => b.priority - a.priority || a.order - b.order)
-          const job = pendingFeedJobs.shift()
-          try {
-            const settings = await getSettings()
-            const result = await refreshFeedSources(job.sourceIds, {
-              force: job.force, pollingEnabled: !!settings.feedPollingEnabled
-            })
-            await scheduleFeedRefresh(settings)
-            job.resolve(result)
-          } catch (error) {
-            console.error('Glanceboard feed refresh failed', error)
-            job.reject(error)
-          }
-        }
-      } finally {
-        feedQueueRunning = false
-        // JavaScript currently reaches this point without yielding after the final empty check,
-        // but re-check after releasing the lock so a future await at that boundary cannot strand a
-        // job whose enqueue attempt observed feedQueueRunning=true.
-        if (pendingFeedJobs.length) {
-          drainFeedQueue().catch(error => console.error('Glanceboard feed queue re-drain failed', error))
-        }
-      }
-    }
-
-    let feedJobOrder = 0
-    function enqueueFeedRefresh (sourceIds, { force = false } = {}) {
-      return new Promise((resolve, reject) => {
-        pendingFeedJobs.push({ sourceIds, force, priority: force ? 1 : 0, order: feedJobOrder++, resolve, reject })
-        drainFeedQueue().catch(error => {
-          console.error('Glanceboard feed queue failed', error)
-          reject(error)
-        })
-      })
-    }
-
     async function scheduleFeedRefresh (settings) {
       if (!settings.feedPollingEnabled) {
         await browser.alarms.clear(FEED_ALARM)
         return
       }
-      const [sources, caches] = await Promise.all([getFeedSources(), getAllFeedCaches()])
+      const sources = await getFeedSources()
+      const caches = await getFeedCaches(sources.map(source => source.id))
       const when = nextFeedRefreshAt(sources, caches)
       if (when == null) await browser.alarms.clear(FEED_ALARM)
       else await browser.alarms.create(FEED_ALARM, { when: Math.max(Date.now() + 1000, when) })
+    }
+
+    const feedRefreshQueue = createFeedRefreshQueue({
+      getSettings,
+      refreshFeedSources,
+      scheduleFeedRefresh,
+      onError: (message, error) => console.error(message, error)
+    })
+
+    function enqueueFeedRefresh (sourceIds, options) {
+      return feedRefreshQueue.enqueue(sourceIds, options)
     }
 
     browser.alarms.onAlarm.addListener((alarm) => {

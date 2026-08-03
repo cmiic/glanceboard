@@ -3,7 +3,8 @@ import { ref, watch } from 'vue'
 import { browser } from '@/lib/browser.js'
 import {
   setSettings, getHosts, addHost, setAllHostsMetric, resetTileLayouts,
-  getFeedGroups, getFeedSources, getReadLater, createFeedGroup, addFeedSources, mergeReadLater
+  getFeedGroups, getFeedSources, getReadLater, createFeedGroup, addFeedSources, mergeReadLater,
+  previewReadLaterMerge
 } from '@/lib/storage.js'
 import { normalizeTarget } from '@/lib/url.js'
 import { buildExportDocument, normalizeImportFeed, parseImportDocument } from '@/lib/backup.js'
@@ -111,12 +112,18 @@ async function doImport () {
   const feedCount = validGroups.reduce((count, group) => count + group.feeds.length, 0)
   const skipped = pending.value.sites.length - validSites.length +
     pending.value.feedGroups.reduce((count, group) => count + group.feeds.length, 0) - feedCount
-  if (!validSites.length && !validGroups.length) { importError.value = 'No valid sites or feeds found in the file'; return }
+  if (!validSites.length && !validGroups.length && !pending.value.readLater.length) {
+    importError.value = 'No valid sites, feeds, or saved items found in the file'
+    return
+  }
   const origins = [...new Set([
     ...validSites.map(url => normalizeTarget(url).originPattern),
     ...validGroups.flatMap(group => group.feeds.map(feed => normalizeTarget(feed.url).originPattern))
   ])]
   try {
+    // Validate the Read Later cap before any permission or storage writes so an oversized restore
+    // cannot leave sites and feeds imported while its saved items fail afterward.
+    if (pending.value.readLater.length) await previewReadLaterMerge(pending.value.readLater)
     const granted = !origins.length || await browser.permissions.request({ origins })
     if (!granted) { importError.value = 'Permission is needed to import these sites and feeds'; return }
     for (const url of validSites) await addHost(url).catch(() => {})
@@ -265,7 +272,9 @@ async function doImport () {
       <p class="popup-load">
         Off by default. When enabled, each feed follows its Auto, fixed-interval, or Off setting.
         Auto adapts between hourly and daily checks from the feed's recent publication cadence.
-        Background refresh updates cached items but does not send notifications.
+        Opening the dashboard then refreshes only missing or scheduled-due feeds; a tile's refresh
+        button always checks it immediately. Background refresh updates cached items but does not
+        send notifications.
       </p>
     </div>
 

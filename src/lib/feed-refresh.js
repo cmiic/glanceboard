@@ -2,7 +2,7 @@ import { browser } from './browser.js'
 import { getFeedAdapter } from './feed-adapters.js'
 import { feedIsDue, scheduleFailedFeedCache, scheduleSuccessfulFeedCache } from './feed-polling.js'
 import {
-  getAllFeedCaches, getFeedSources, setFeedCachesForExistingSources
+  getFeedCaches, getFeedSources, setFeedCachesForExistingSources
 } from './storage.js'
 import { normalizeTarget } from './url.js'
 
@@ -16,10 +16,12 @@ async function hasSourcePermission (source) {
 export async function refreshFeedSources (sourceIds = null, {
   force = false, pollingEnabled = true, now = () => Date.now()
 } = {}) {
-  const [sources, caches] = await Promise.all([getFeedSources(), getAllFeedCaches()])
+  const sources = await getFeedSources()
   const requested = sourceIds == null ? null : new Set(sourceIds)
-  const selected = sources.filter(source =>
-    (!requested || requested.has(source.id)) && (force || feedIsDue(source, caches[source.id], now(), { pollingEnabled })))
+  const candidates = sources.filter(source => !requested || requested.has(source.id))
+  const caches = await getFeedCaches(candidates.map(source => source.id))
+  const selected = candidates.filter(source =>
+    force || feedIsDue(source, caches[source.id], now(), { pollingEnabled }))
   const updates = {}
   const failures = []
   for (const source of selected) {

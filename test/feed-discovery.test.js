@@ -5,18 +5,18 @@ import {
   discoverFromHtml, discoverFromLinkHeader, discoverFromOrf, discoveryPermissionPatterns,
   inspectTarget, defaultCandidateIds, orfDiscoveryRequest
 } from '../src/lib/feed-discovery.js'
-import { MAX_RSS_BYTES } from '../src/lib/rss.js'
+import { MAX_FEED_BYTES } from '../src/lib/rss.js'
 
 const rss = '<rss version="2.0"><channel><title>News</title><item><title>Hello</title><link>https://example.com/hello</link></item></channel></rss>'
 
-test('HTML and Link header discovery resolve supported alternates and skip alternate stylesheets', () => {
-  const html = '<link rel="alternate stylesheet" type="application/rss+xml" title="Theme" href="/theme-feed"><link rel="alternate" type="application/rss+xml" title="News" href="/feed"><link rel="alternate" type="application/atom+xml" href="/atom"><link rel="alternate" type="application/feed+json" href="/feed.json">'
+test('HTML and Link header discovery resolve supported alternates and skip generic JSON or stylesheets', () => {
+  const html = '<link rel="alternate stylesheet" type="application/rss+xml" title="Theme" href="/theme-feed"><link rel="alternate" type="application/rss+xml" title="News" href="/feed"><link rel="alternate" type="application/atom+xml" href="/atom"><link rel="alternate" type="application/feed+json" href="/feed.json"><link rel="alternate" type="application/json" href="/wp-json/wp/v2/posts/1">'
   assert.deepEqual(discoverFromHtml(html, 'https://example.com/blog', DOMParser), [
     { type: 'rss', url: 'https://example.com/feed', title: 'News' },
     { type: 'atom', url: 'https://example.com/atom', title: '' },
     { type: 'jsonfeed', url: 'https://example.com/feed.json', title: '' }
   ])
-  assert.deepEqual(discoverFromLinkHeader('</feed>; rel="alternate"; type="application/rss+xml", </atom>; rel="alternate"; type="application/atom+xml", </feed.json>; rel="alternate"; type="application/feed+json"', 'https://example.com'), [
+  assert.deepEqual(discoverFromLinkHeader('</feed>; rel="alternate"; type="application/rss+xml", </atom>; rel="alternate"; type="application/atom+xml", </feed.json>; rel="alternate"; type="application/feed+json", </api>; rel="alternate"; type="application/json"', 'https://example.com'), [
     { type: 'rss', url: 'https://example.com/feed', title: '' },
     { type: 'atom', url: 'https://example.com/atom', title: '' },
     { type: 'jsonfeed', url: 'https://example.com/feed.json', title: '' }
@@ -36,6 +36,16 @@ test('inspectTarget recognizes direct Atom and JSON Feed documents', async () =>
     assert.equal(result.kind, 'feed')
     assert.equal(result.candidates[0].type, type)
   }
+})
+
+test('inspectTarget canonicalizes a direct feed URL before returning it', async () => {
+  const body = JSON.stringify({ version: 'https://jsonfeed.org/version/1.1', title: 'JSON News', items: [] })
+  const result = await inspectTarget('https://example.com/feed.json#section', {
+    Parser: DOMParser, includeOrf: false,
+    fetchImpl: async () => new Response(body, { headers: { 'content-type': 'application/json' } })
+  })
+  assert.equal(result.pageUrl, 'https://example.com/feed.json')
+  assert.equal(result.candidates[0].url, 'https://example.com/feed.json')
 })
 
 test('inspectTarget does not classify a generic JSON endpoint as JSON Feed', async () => {
@@ -95,7 +105,7 @@ test('inspectTarget: rejects declared oversized responses before reading their b
     webRequest: null,
     fetchImpl: async () => ({
       type: 'basic', status: 200, ok: true, url: 'https://example.com/feed',
-      headers: new Headers({ 'content-type': 'application/rss+xml', 'content-length': String(MAX_RSS_BYTES + 1) }),
+      headers: new Headers({ 'content-type': 'application/rss+xml', 'content-length': String(MAX_FEED_BYTES + 1) }),
       async arrayBuffer () { bodyRead = true; return new ArrayBuffer(0) }
     })
   }), /larger than 2 MB/)
