@@ -1,8 +1,8 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { cacheWithError, mergeFeedItems, truncateFeedDescription } from '@/lib/rss.js'
-import { getFeedAdapter } from '@/lib/feed-adapters.js'
-import { setFeedCachesForExistingSources } from '@/lib/storage.js'
+import { browser } from '@/lib/browser.js'
+import { mergeFeedItems, truncateFeedDescription } from '@/lib/rss.js'
+import { readLaterId, removeReadLater, saveReadLater } from '@/lib/storage.js'
 import { feedSourceDisplay } from '@/lib/feed-settings.js'
 
 const props = defineProps({
@@ -11,10 +11,12 @@ const props = defineProps({
   caches: { type: Object, default: () => ({}) },
   mode: { type: String, default: 'desktop' },
   reloadNonce: { type: Number, default: 0 },
-  arrangeable: { type: Boolean, default: false }
+  arrangeable: { type: Boolean, default: false },
+  pollingEnabled: { type: Boolean, default: false },
+  savedIds: { type: Set, default: () => new Set() }
 })
 
-const emit = defineEmits(['dragstart', 'resizestart', 'loaded'])
+const emit = defineEmits(['dragstart', 'resizestart', 'loaded', 'play'])
 const cardEl = ref(null)
 const busy = ref(false)
 const runError = ref('')
@@ -59,33 +61,42 @@ function itemDate (timestamp) {
     : ''
 }
 
-async function loadFeeds () {
+async function loadFeeds (force = !props.pollingEnabled) {
   if (busy.value) return
   loadedOnce = true
   busy.value = true
   runError.value = ''
-  const updates = {}
   try {
-    for (const source of props.sources) {
-      const previous = props.caches[source.id] || null
-      try {
-        const adapter = getFeedAdapter(source.type)
-        if (!adapter) throw new Error(`Unsupported feed type: ${source.type}`)
-        const result = await adapter.refresh(source.url, { previous })
-        updates[source.id] = result.cache
-      } catch (error) {
-        updates[source.id] = cacheWithError(previous, error)
-        runError.value = error?.message || String(error)
-      }
-    }
-    const currentIds = new Set(props.sources.map(source => source.id))
-    const currentUpdates = Object.fromEntries(Object.entries(updates).filter(([id]) => currentIds.has(id)))
-    await setFeedCachesForExistingSources(currentUpdates)
+    const result = await browser.runtime.sendMessage({
+      type: 'refresh-feeds', sourceIds: props.sources.map(source => source.id), force
+    })
+    runError.value = result?.failures?.map(item => item.message).join('; ') || ''
   } catch (error) {
     runError.value = error?.message || String(error)
   } finally {
     busy.value = false
     emit('loaded', props.group.id)
+  }
+}
+
+function sourceFor (item) {
+  return props.sources.find(source => source.id === item.sourceId)
+}
+
+function isSaved (item) {
+  const source = sourceFor(item)
+  return !!source && props.savedIds.has(readLaterId(source, item))
+}
+
+async function toggleSaved (item) {
+  const source = sourceFor(item)
+  if (!source) return
+  try {
+    const id = readLaterId(source, item)
+    if (props.savedIds.has(id)) await removeReadLater(id)
+    else await saveReadLater(source, item)
+  } catch (error) {
+    runError.value = error?.message || String(error)
   }
 }
 
@@ -97,16 +108,16 @@ onMounted(() => {
     mobileObserver = new IntersectionObserver(entries => {
       if (entries.some(entry => entry.isIntersecting) && !loadedOnce) {
         mobileObserver.disconnect()
-        loadFeeds()
+        loadFeeds(!props.pollingEnabled)
       }
     }, { rootMargin: '150px' })
     if (cardEl.value) mobileObserver.observe(cardEl.value)
   } else {
-    loadFeeds()
+    loadFeeds(!props.pollingEnabled)
   }
 })
 onBeforeUnmount(() => { mobileObserver?.disconnect() })
-watch(() => props.reloadNonce, (next, previous) => { if (next !== previous) loadFeeds() })
+watch(() => props.reloadNonce, (next, previous) => { if (next !== previous) loadFeeds(!props.pollingEnabled) })
 </script>
 
 <template>
@@ -131,7 +142,7 @@ watch(() => props.reloadNonce, (next, previous) => { if (next !== previous) load
         title="Refresh feeds"
         aria-label="Refresh feeds"
         :disabled="busy"
-        @click="loadFeeds"
+        @click="loadFeeds(true)"
       >
         ⟳
       </button>
@@ -147,7 +158,7 @@ watch(() => props.reloadNonce, (next, previous) => { if (next !== previous) load
         v-if="!items.length"
         class="placeholder feed-placeholder"
       >
-        {{ busy ? 'Loading headlines…' : 'No RSS items available' }}
+        {{ busy ? 'Loading headlines…' : 'No feed items available' }}
       </div>
       <article
         v-for="item in items"
@@ -176,6 +187,23 @@ watch(() => props.reloadNonce, (next, previous) => { if (next !== previous) load
             v-else
             class="feed-item-title"
           >{{ item.title }}</span>
+          <span class="feed-item-actions">
+            <button
+              v-if="item.audio"
+              class="btn btn-icon btn-sm"
+              type="button"
+              title="Play episode"
+              aria-label="Play episode"
+              @click="emit('play', item)"
+            >▶</button>
+            <button
+              class="btn btn-icon btn-sm"
+              type="button"
+              :title="isSaved(item) ? 'Remove from Read Later' : 'Save to Read Later'"
+              :aria-label="isSaved(item) ? 'Remove from Read Later' : 'Save to Read Later'"
+              @click="toggleSaved(item)"
+            >{{ isSaved(item) ? '★' : '☆' }}</button>
+          </span>
         </div>
         <p
           v-if="item.visibleDescription"
@@ -228,6 +256,7 @@ watch(() => props.reloadNonce, (next, previous) => { if (next !== previous) load
 .feed-item { padding: 9px 12px; border-bottom: 1px solid var(--border); }
 .feed-item:last-child { border-bottom: 0; }
 .feed-item-heading { display: flex; align-items: flex-start; gap: 8px; }
+.feed-item-actions { margin-left: auto; display: inline-flex; gap: 4px; flex: none; }
 .feed-item-image { width: 38px; height: 38px; flex: 0 0 38px; border-radius: 5px; object-fit: cover; background: var(--surface-2); }
 .feed-item-title { display: -webkit-box; flex: 1; min-width: 0; overflow: hidden; color: var(--text); font-weight: 600; line-height: 1.35; text-decoration: none; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 a.feed-item-title:hover { color: var(--primary); text-decoration: underline; }

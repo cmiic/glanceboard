@@ -4,14 +4,16 @@ import { browser } from '@/lib/browser.js'
 import { normalizeTarget } from '@/lib/url.js'
 import {
   createFeedGroup, renameFeedGroup, removeFeedGroup, moveFeedSource, removeFeedSource,
-  setFeedSourceDisplay
+  setFeedSourceDisplay, setFeedSourceRefresh
 } from '@/lib/storage.js'
-import { feedSourceDisplay, syncFeedGroupDrafts } from '@/lib/feed-settings.js'
+import { feedSourceDisplay, feedSourceRefresh, syncFeedGroupDrafts } from '@/lib/feed-settings.js'
 import AddHostForm from './AddHostForm.vue'
 
 const props = defineProps({
   groups: { type: Array, default: () => [] },
-  sources: { type: Array, default: () => [] }
+  sources: { type: Array, default: () => [] },
+  caches: { type: Object, default: () => ({}) },
+  pollingEnabled: { type: Boolean, default: false }
 })
 
 const newName = ref('')
@@ -52,7 +54,7 @@ async function rename (group) {
 
 async function removeGroup (group) {
   const count = sourcesByGroup.value[group.id]?.length || 0
-  if (count && !window.confirm(`Delete “${group.name}” and its ${count} RSS feed(s)?`)) return
+  if (count && !window.confirm(`Delete “${group.name}” and its ${count} feed(s)?`)) return
   await run(group.id, async () => { await removeFeedGroup(group.id) })
 }
 
@@ -72,6 +74,33 @@ async function updateDisplay (source, patch) {
   await run(source.id, async () => { await setFeedSourceDisplay(source.id, patch) })
 }
 
+function refreshFor (source) {
+  const value = feedSourceRefresh(source)
+  return value.mode === 'fixed' ? `fixed:${value.intervalMinutes}` : value.mode
+}
+
+async function updateRefresh (source, value) {
+  const [mode, minutes] = String(value).split(':')
+  await run(source.id, async () => {
+    await setFeedSourceRefresh(source.id, {
+      mode: mode === 'fixed' ? 'fixed' : mode,
+      intervalMinutes: mode === 'fixed' ? Number(minutes) : null
+    })
+  })
+}
+
+function scheduleText (source) {
+  const schedule = props.caches[source.id]?.schedule
+  const format = value => value ? new Date(value).toLocaleString([], {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }) : '—'
+  const next = !props.pollingEnabled
+    ? 'background paused globally'
+    : feedSourceRefresh(source).mode === 'off' ? 'background off' : `next ${format(schedule?.nextRefreshAt)}`
+  return `Last attempt ${format(schedule?.lastAttemptAt)} · ${next}`
+}
+
 async function grant (source) {
   const n = normalizeTarget(source.url)
   if (!n) return
@@ -87,7 +116,7 @@ async function grant (source) {
   <div class="feed-admin">
     <AddHostForm />
     <p class="popup-load">
-      RSS feeds belong to one group. Every non-empty group appears as one tile on the Monitor wall.
+      Feeds belong to one group. Every non-empty group appears as one tile on the Monitor wall.
     </p>
 
     <form
@@ -168,8 +197,9 @@ async function grant (source) {
         class="feed-source-row"
       >
         <div class="feed-source-name">
-          <strong>{{ source.title }}</strong>
+          <strong><span class="feed-type">{{ source.type === 'jsonfeed' ? 'JSON' : (source.type || 'rss').toUpperCase() }}</span> {{ source.title }}</strong>
           <span class="popup-load url-wrap">{{ source.url }}</span>
+          <span class="popup-load url-wrap">{{ scheduleText(source) }}</span>
         </div>
         <select
           class="input input-sm"
@@ -234,6 +264,25 @@ async function grant (source) {
             >
             chars (0 = all)
           </label>
+          <label>
+            Background refresh
+            <select
+              class="input input-sm refresh-select"
+              :value="refreshFor(source)"
+              :disabled="busyId === source.id"
+              @change="updateRefresh(source, $event.target.value)"
+            >
+              <option value="auto">Auto</option>
+              <option value="off">Off (background only)</option>
+              <option
+                v-for="minutes in [15, 30, 60, 180, 360, 720, 1440]"
+                :key="minutes"
+                :value="`fixed:${minutes}`"
+              >
+                {{ minutes < 60 ? `${minutes} min` : `${minutes / 60} h` }}
+              </option>
+            </select>
+          </label>
         </div>
       </div>
     </section>
@@ -251,10 +300,12 @@ async function grant (source) {
 .feed-source-name { flex: 1; min-width: 220px; overflow: hidden; }
 .url-wrap { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .input-sm { padding: 5px 8px; font-size: 12px; max-width: 170px; }
-.feed-display-settings { flex-basis: 100%; display: flex; align-items: center; gap: 14px; padding-left: min(24px, 3vw); font-size: 12px; color: var(--text-dim); }
+.feed-display-settings { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding-left: min(24px, 3vw); font-size: 12px; color: var(--text-dim); }
 .feed-display-settings label { display: inline-flex; align-items: center; gap: 5px; }
 .description-limit { flex-wrap: wrap; }
 .limit-input { width: 76px; padding: 4px 6px; font-size: 12px; }
+.feed-type { display: inline-block; padding: 1px 4px; border: 1px solid var(--border); border-radius: 4px; color: var(--text-dim); font-size: 9px; vertical-align: 1px; }
+.refresh-select { width: 100px; }
 @media (max-width: 620px) {
   .feed-display-settings { padding-left: 0; align-items: flex-start; flex-direction: column; gap: 7px; }
 }

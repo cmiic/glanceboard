@@ -1,8 +1,17 @@
 import { normalizeHttpUrl, readBoundedResponseText } from './rss.js'
-import { getFeedAdapter } from './feed-adapters.js'
+import { getFeedAdapter, matchingFeedAdapters } from './feed-adapters.js'
 
-export const COMMON_RSS_PATHS = ['/feed/', '/feed', '/rss.xml', '/rss', '/feed.xml']
+export const COMMON_FEED_PATHS = [
+  '/feed/', '/feed', '/rss.xml', '/rss', '/feed.xml', '/atom.xml', '/feed.atom', '/feed.json'
+]
+export const COMMON_RSS_PATHS = COMMON_FEED_PATHS
 const discoveryStrategies = []
+const TYPE_BY_MEDIA = new Map([
+  ['application/rss+xml', 'rss'],
+  ['application/rdf+xml', 'rss'],
+  ['application/atom+xml', 'atom'],
+  ['application/feed+json', 'jsonfeed']
+])
 
 export function registerDiscoveryStrategy (strategy) {
   if (!strategy?.id || typeof strategy.discover !== 'function') throw new Error('Invalid discovery strategy')
@@ -15,9 +24,9 @@ export function listDiscoveryStrategies () {
   return discoveryStrategies.slice()
 }
 
-function candidate (url, title = '') {
+function candidate (url, title = '', type = 'rss') {
   const normalized = normalizeHttpUrl(url)
-  return normalized ? { type: 'rss', url: normalized, title: String(title || '').trim() } : null
+  return normalized ? { type, url: normalized, title: String(title || '').trim() } : null
 }
 
 export function dedupeCandidates (candidates) {
@@ -50,9 +59,10 @@ export function discoverFromLinkHeader (value, pageUrl) {
   for (const part of splitLinkHeader(value)) {
     const href = /<([^>]+)>/.exec(part)?.[1]
     const rel = /;\s*rel\s*=\s*["']?([^;"']+)/i.exec(part)?.[1] || ''
-    const type = /;\s*type\s*=\s*["']?([^;"']+)/i.exec(part)?.[1] || ''
-    if (!href || !rel.toLowerCase().split(/\s+/).includes('alternate') || type.toLowerCase() !== 'application/rss+xml') continue
-    const item = candidate(normalizeHttpUrl(href, pageUrl))
+    const mediaType = (/;\s*type\s*=\s*["']?([^;"']+)/i.exec(part)?.[1] || '').toLowerCase()
+    const type = TYPE_BY_MEDIA.get(mediaType)
+    if (!href || !type || !rel.toLowerCase().split(/\s+/).includes('alternate')) continue
+    const item = candidate(normalizeHttpUrl(href, pageUrl), '', type)
     if (item) found.push(item)
   }
   return dedupeCandidates(found)
@@ -64,10 +74,11 @@ export function discoverFromHtml (html, pageUrl, Parser = globalThis.DOMParser) 
   const found = []
   for (const link of Array.from(document.querySelectorAll('link[rel][href]'))) {
     const rels = String(link.getAttribute('rel') || '').toLowerCase().split(/\s+/)
-    if (!rels.includes('alternate') || rels.includes('stylesheet') ||
-        String(link.getAttribute('type') || '').toLowerCase() !== 'application/rss+xml') continue
+    const mediaType = String(link.getAttribute('type') || '').toLowerCase().split(';')[0].trim()
+    const type = TYPE_BY_MEDIA.get(mediaType)
+    if (!rels.includes('alternate') || rels.includes('stylesheet') || !type) continue
     const url = normalizeHttpUrl(link.getAttribute('href'), pageUrl)
-    const item = candidate(url, link.getAttribute('title'))
+    const item = candidate(url, link.getAttribute('title'), type)
     if (item) found.push(item)
   }
   return dedupeCandidates(found)
@@ -148,6 +159,49 @@ async function fetchForInspection (pageUrl, { fetchImpl, webRequest }) {
   }
 }
 
+function cacheFromParsedResponse (parsed, response, now = Date.now()) {
+  return {
+    fetchedAt: now,
+    etag: response.headers.get('etag') || null,
+    lastModified: response.headers.get('last-modified') || null,
+    channel: parsed.channel,
+    items: parsed.items,
+    error: null
+  }
+}
+
+function parseDetectedFeed (body, contentType, url, response, Parser, matching = matchingFeedAdapters(body, contentType)) {
+  let firstError = null
+  for (const adapter of matching) {
+    try {
+      const parsed = adapter.parse(body, { url, Parser })
+      return { type: adapter.type, url, cache: cacheFromParsedResponse(parsed, response) }
+    } catch (error) {
+      firstError ||= error
+    }
+  }
+  if (firstError) throw firstError
+  return null
+}
+
+async function inspectFeedResponse (response, requestedUrl, Parser) {
+  if (!response.ok) throw new Error(`Feed request failed (${response.status})`)
+  const url = normalizeHttpUrl(response.url || requestedUrl)
+  if (!url) throw new Error('Feed redirected to an unsupported URL')
+  const contentType = response.headers.get('content-type') || ''
+  const body = await readBoundedResponseText(response)
+  return { body, contentType, result: parseDetectedFeed(body, contentType, url, response, Parser) }
+}
+
+async function probeFeed (url, { fetchImpl, Parser, timeoutMs = 5000 }) {
+  const response = await fetchImpl(url, {
+    method: 'GET', redirect: 'follow', cache: 'no-store', credentials: 'omit',
+    headers: { Accept: 'application/rss+xml, application/atom+xml, application/feed+json, application/json;q=0.9, application/xml;q=0.8' },
+    signal: AbortSignal.timeout(timeoutMs)
+  })
+  return (await inspectFeedResponse(response, url, Parser)).result
+}
+
 export async function inspectTarget (pageUrl, {
   fetchImpl = globalThis.fetch,
   Parser = globalThis.DOMParser,
@@ -166,36 +220,33 @@ export async function inspectTarget (pageUrl, {
   }
   if (!response.ok) throw new Error(`Site request failed (${response.status})`)
 
+  const finalPageUrl = normalizeHttpUrl(response.url || pageUrl)
+  if (!finalPageUrl) throw new Error('Site redirected to an unsupported URL')
   const contentType = response.headers.get('content-type') || ''
   const body = await readBoundedResponseText(response)
+  const matching = matchingFeedAdapters(body, contentType)
   let directError
   try {
-    // readBoundedResponseText has already decoded the original bytes. A synthetic Response encodes
-    // this JS string as UTF-8, so its metadata must say UTF-8 too; forwarding an ISO-8859-1 charset
-    // would make the RSS adapter decode those new UTF-8 bytes a second time as legacy text.
-    const directHeaders = new Headers(response.headers)
-    const mediaType = contentType.split(';')[0].trim() || 'application/xml'
-    directHeaders.set('content-type', `${mediaType}; charset=utf-8`)
-    directHeaders.delete('content-length')
-    const direct = await getFeedAdapter('rss').refresh(response.url || pageUrl, {
-      fetchImpl: async () => new Response(body, { status: 200, headers: directHeaders }), Parser
-    })
-    return { kind: 'feed', pageUrl: response.url || pageUrl, candidates: [{ type: 'rss', url: direct.url, title: direct.cache.channel.title, validated: direct.cache }] }
+    const direct = parseDetectedFeed(body, contentType, finalPageUrl, response, Parser, matching)
+    if (direct) return {
+      kind: 'feed', pageUrl: finalPageUrl,
+      candidates: [{ type: direct.type, url: direct.url, title: direct.cache.channel.title, validated: direct.cache }]
+    }
   } catch (error) {
     directError = error
   }
-  // A URL explicitly serving (or visibly containing) RSS must not silently become a website tile
-  // when its XML is malformed, unsafe, or too large.
-  if (/application\/(?:rss|rdf)\+xml/i.test(contentType) ||
-      /^\s*(?:<\?xml[^>]*>\s*)?<(?:rss\b|(?:[\w-]+:)?RDF\b)/i.test(body)) throw directError
+  // A response explicitly declaring a feed media type must not silently become a website tile when
+  // malformed. Generic XML/JSON is treated as a feed only after a successful content validation.
+  const looksLikeFeed = matching.length > 0
+  if (/application\/(?:rss|rdf|atom)\+xml|application\/feed\+json/i.test(contentType) || looksLikeFeed) throw directError
 
   let found = [
-    ...discoverFromLinkHeader(response.headers.get('link'), response.url || pageUrl),
-    ...(contentType.includes('html') ? discoverFromHtml(body, response.url || pageUrl, Parser) : [])
+    ...discoverFromLinkHeader(response.headers.get('link'), finalPageUrl),
+    ...(contentType.includes('html') ? discoverFromHtml(body, finalPageUrl, Parser) : [])
   ]
   for (const strategy of discoveryStrategies) {
     if (!includeOrf && strategy.id === 'orf-podcast') continue
-    found.push(...await strategy.discover(response.url || pageUrl, { fetchImpl, Parser }).catch(() => []))
+    found.push(...await strategy.discover(finalPageUrl, { fetchImpl, Parser }).catch(() => []))
   }
   found = dedupeCandidates(found)
 
@@ -206,21 +257,22 @@ export async function inspectTarget (pageUrl, {
       const result = await getFeedAdapter(item.type)?.refresh(item.url, { fetchImpl, Parser })
       if (!result) continue
       validated.push({ ...item, url: result.url, title: result.cache.channel.title || item.title, validated: result.cache })
-    } catch { /* An advertised URL is only offered when it validates as RSS. */ }
+    } catch { /* An advertised URL is only offered when it validates as its declared feed type. */ }
   }
   if (!validated.length) {
-    const base = new URL(response.url || pageUrl).origin
-    for (const path of COMMON_RSS_PATHS) {
+    const base = new URL(finalPageUrl).origin
+    for (const path of COMMON_FEED_PATHS) {
       const url = base + path
       if (!(await canFetch(url))) continue
       try {
-        const result = await getFeedAdapter('rss').refresh(url, { fetchImpl, Parser, timeoutMs: 5000 })
-        validated.push({ type: 'rss', url: result.url, title: result.cache.channel.title, validated: result.cache })
+        const result = await probeFeed(url, { fetchImpl, Parser })
+        if (!result) continue
+        validated.push({ type: result.type, url: result.url, title: result.cache.channel.title, validated: result.cache })
         break
       } catch { /* Try the next conventional path. */ }
     }
   }
-  return { kind: 'page', pageUrl: response.url || pageUrl, candidates: dedupeCandidates(validated) }
+  return { kind: 'page', pageUrl: finalPageUrl, candidates: dedupeCandidates(validated) }
 }
 
 export function defaultCandidateIds (candidates) {

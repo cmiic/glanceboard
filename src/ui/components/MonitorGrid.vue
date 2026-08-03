@@ -15,9 +15,12 @@ const props = defineProps({
   feedGroups: { type: Array, default: () => [] },
   feedSources: { type: Array, default: () => [] },
   feedCaches: { type: Object, default: () => ({}) },
+  savedIds: { type: Set, default: () => new Set() },
   results: { type: Object, default: () => ({}) },
   settings: { type: Object, default: () => ({}) }
 })
+
+const emit = defineEmits(['play'])
 
 const wallEl = ref(null)
 const isMobile = ref(false)
@@ -358,7 +361,7 @@ onBeforeUnmount(() => {
       v-if="!tiles.length"
       class="empty"
     >
-      No tiles yet — add a website or RSS feed from the <strong>Sites</strong> or <strong>Feeds</strong> tab.
+      No tiles yet — add a website or feed from the <strong>Sites</strong> or <strong>Feeds</strong> tab.
     </div>
     <!-- key by mode so cards remount cleanly when the layout mode is switched -->
     <div
@@ -398,9 +401,12 @@ onBeforeUnmount(() => {
           :mode="mode"
           :arrangeable="arrangeable"
           :reload-nonce="reloadNonces[tile.id] || 0"
+          :polling-enabled="!!settings.feedPollingEnabled"
+          :saved-ids="savedIds"
           @dragstart="onDragStart"
           @resizestart="onResizeStart"
           @loaded="onTileLoaded"
+          @play="emit('play', $event)"
         />
       </template>
     </div>

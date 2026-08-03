@@ -1,4 +1,6 @@
-import { fetchRss, parseRss } from './rss.js'
+import { fetchRss, parseRss, sniffRss } from './rss.js'
+import { fetchAtom, parseAtom, sniffAtom } from './atom.js'
+import { fetchJsonFeed, parseJsonFeed, sniffJsonFeed } from './json-feed.js'
 
 const adapters = new Map()
 
@@ -15,4 +17,19 @@ export function listFeedAdapters () {
   return [...adapters.values()]
 }
 
-registerFeedAdapter({ type: 'rss', parse: parseRss, refresh: fetchRss })
+export function matchingFeedAdapters (body, contentType = '') {
+  return listFeedAdapters().filter(adapter => adapter.sniff?.(body, contentType))
+}
+
+registerFeedAdapter({
+  type: 'rss', mediaTypes: ['application/rss+xml', 'application/rdf+xml'],
+  sniff: sniffRss, parse: parseRss, refresh: fetchRss
+})
+registerFeedAdapter({
+  type: 'atom', mediaTypes: ['application/atom+xml'],
+  sniff: sniffAtom, parse: parseAtom, refresh: fetchAtom
+})
+registerFeedAdapter({
+  type: 'jsonfeed', mediaTypes: ['application/feed+json', 'application/json'],
+  sniff: sniffJsonFeed, parse: parseJsonFeed, refresh: fetchJsonFeed
+})

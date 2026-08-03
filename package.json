@@ -1,9 +1,9 @@
 {
   "name": "glanceboard",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
-  "description": "Glanceboard — live website previews and grouped RSS headlines for Firefox",
+  "description": "Glanceboard — live website previews and grouped feed headlines for Firefox",
   "homepage": "https://github.com/cmiic/glanceboard#readme",
   "repository": {
     "type": "git",

@@ -2,8 +2,8 @@
 import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { browser } from '@/lib/browser.js'
 import {
-  getHosts, getAllResults, getSettings, getFeedGroups, getFeedSources, getAllFeedCaches,
-  onChanged, entryLabel
+  getHosts, getAllResults, getSettings, getFeedGroups, getFeedSources, getFeedCaches,
+  getReadLater, onChanged, entryLabel
 } from '@/lib/storage.js'
 import { isCertExpiringSoon, isLoadSlow, isStale } from '@/lib/thresholds.js'
 import MonitorGrid from './components/MonitorGrid.vue'
@@ -11,6 +11,8 @@ import HostList from './components/HostList.vue'
 import FeedList from './components/FeedList.vue'
 import AddHostForm from './components/AddHostForm.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import ReadLaterList from './components/ReadLaterList.vue'
+import PodcastPlayer from './components/PodcastPlayer.vue'
 
 const props = defineProps({ view: { type: String, default: 'dashboard' } })
 
@@ -20,21 +22,26 @@ const settings = ref({})
 const feedGroups = ref([])
 const feedSources = ref([])
 const feedCaches = ref({})
+const readLater = ref([])
+const activePodcast = ref(null)
 const tab = ref('monitor')
 const isPopup = computed(() => props.view === 'popup')
 const nonEmptyFeedGroups = computed(() => feedGroups.value.filter(group =>
   feedSources.value.some(source => source.groupId === group.id)))
+const savedIds = computed(() => new Set(readLater.value.map(item => item.id)))
 
 async function refresh () {
-  const [h, r, s, groups, sources, caches] = await Promise.all([
-    getHosts(), getAllResults(), getSettings(), getFeedGroups(), getFeedSources(), getAllFeedCaches()
+  const [h, r, s, groups, sources, saved] = await Promise.all([
+    getHosts(), getAllResults(), getSettings(), getFeedGroups(), getFeedSources(), getReadLater()
   ])
+  const caches = await getFeedCaches(sources.map(source => source.id))
   hosts.value = h
   results.value = r
   settings.value = s
   feedGroups.value = groups
   feedSources.value = sources
   feedCaches.value = caches
+  readLater.value = saved
 }
 
 function applyStorageChanges (changes) {
@@ -42,6 +49,7 @@ function applyStorageChanges (changes) {
   if (changes.feedGroups) feedGroups.value = changes.feedGroups.newValue || []
   if (changes.feedSources) feedSources.value = changes.feedSources.newValue || []
   if (changes.settings) getSettings().then(value => { settings.value = value })
+  if (changes.readLater) readLater.value = changes.readLater.newValue || []
 
   let nextResults = null
   let nextCaches = null
@@ -139,7 +147,7 @@ function loadText (host) {
         class="host-row"
         @click="openDashboard"
       >
-        <span class="feed-dot">RSS</span>
+        <span class="feed-dot">FEED</span>
         <span class="name">{{ group.name }}</span>
         <span class="popup-load">{{ feedSources.filter(source => source.groupId === group.id).length }} feeds</span>
       </div>
@@ -150,6 +158,7 @@ function loadText (host) {
   <div
     v-else
     class="app"
+    :class="{ 'has-player': activePodcast }"
   >
     <div class="app-header">
       <h1 class="app-title">
@@ -179,6 +188,13 @@ function loadText (host) {
         </button>
         <button
           class="tab"
+          :class="{ active: tab === 'read-later' }"
+          @click="tab = 'read-later'"
+        >
+          Read Later<span v-if="readLater.length"> ({{ readLater.length }})</span>
+        </button>
+        <button
+          class="tab"
           :class="{ active: tab === 'settings' }"
           @click="tab = 'settings'"
         >
@@ -197,6 +213,8 @@ function loadText (host) {
       :feed-caches="feedCaches"
       :results="results"
       :settings="settings"
+      :saved-ids="savedIds"
+      @play="activePodcast = $event"
     />
     <div
       v-show="tab === 'hosts'"
@@ -211,10 +229,23 @@ function loadText (host) {
       <FeedList
         :groups="feedGroups"
         :sources="feedSources"
+        :caches="feedCaches"
+        :polling-enabled="!!settings.feedPollingEnabled"
+      />
+    </div>
+    <div v-show="tab === 'read-later'">
+      <ReadLaterList
+        :items="readLater"
+        @play="activePodcast = $event"
       />
     </div>
     <div v-show="tab === 'settings'">
       <SettingsPanel :settings="settings" />
     </div>
+    <PodcastPlayer
+      v-if="activePodcast?.audio"
+      :item="activePodcast"
+      @close="activePodcast = null"
+    />
   </div>
 </template>

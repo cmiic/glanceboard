@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { DOMParser } from 'linkedom'
 import {
   parseRss, fetchRss, cacheWithError, mergeFeedItems, normalizeHttpUrl,
-  truncateFeedDescription, MAX_RSS_BYTES, MAX_RSS_ITEMS, MAX_RSS_DESCRIPTION_CHARS
+  truncateFeedDescription, MAX_FEED_BYTES, MAX_FEED_ITEMS, MAX_FEED_DESCRIPTION_CHARS
 } from '../src/lib/rss.js'
 
 const rss = `<?xml version="1.0"?>
@@ -27,10 +27,10 @@ test('parseRss: normalizes RSS 2.0, relative links and duplicate GUIDs', () => {
 })
 
 test('parseRss: caps items and rejects malformed, DOCTYPE and non-RSS documents', () => {
-  const items = Array.from({ length: MAX_RSS_ITEMS + 5 }, (_, i) => `<item><guid>${i}</guid><title>${i}</title></item>`).join('')
+  const items = Array.from({ length: MAX_FEED_ITEMS + 5 }, (_, i) => `<item><guid>${i}</guid><title>${i}</title></item>`).join('')
   assert.equal(parseRss(`<rss version="2.0"><channel><title>x</title>${items}</channel></rss>`, {
     url: 'https://x.test/feed', Parser: DOMParser
-  }).items.length, MAX_RSS_ITEMS)
+  }).items.length, MAX_FEED_ITEMS)
   class ErrorParser {
     parseFromString () {
       return { documentElement: { localName: 'parsererror' }, getElementsByTagName: () => [{}] }
@@ -96,6 +96,19 @@ test('parseRss: extracts plain-text descriptions and safe item images', () => {
   assert.equal(items[3].imageUrl, null)
 })
 
+test('parseRss extracts podcast audio and common duration formats', () => {
+  const podcast = `<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel><title>Show</title>
+    <item><guid>one</guid><title>Episode</title><itunes:duration>1:02:03</itunes:duration>
+      <enclosure url="/episode.mp3" type="audio/mpeg" length="1234"/></item>
+    <item><guid>two</guid><title>Unsafe</title><enclosure url="javascript:alert(1)" type="audio/mpeg"/></item>
+  </channel></rss>`
+  const items = parseRss(podcast, { url: 'https://example.com/feed.xml', Parser: DOMParser }).items
+  assert.deepEqual(items[0].audio, {
+    url: 'https://example.com/episode.mp3', mimeType: 'audio/mpeg', byteLength: 1234, durationSeconds: 3723
+  })
+  assert.equal(items[1].audio, null)
+})
+
 test('normalizeHttpUrl: allows HTTP(S), resolves relatives and rejects credentials or scripts', () => {
   assert.equal(normalizeHttpUrl('/feed#top', 'https://example.com/page'), 'https://example.com/feed')
   assert.equal(normalizeHttpUrl('', 'https://example.com/page'), null)
@@ -111,11 +124,11 @@ test('truncateFeedDescription applies an optional character limit and ellipsis',
 })
 
 test('parseRss bounds normalized descriptions stored in the cache', () => {
-  const description = 'x'.repeat(MAX_RSS_DESCRIPTION_CHARS + 10)
+  const description = 'x'.repeat(MAX_FEED_DESCRIPTION_CHARS + 10)
   const parsed = parseRss(`<rss version="2.0"><channel><title>x</title><item><guid>1</guid><description>${description}</description></item></channel></rss>`, {
     url: 'https://example.com/feed', Parser: DOMParser
   })
-  assert.equal(parsed.items[0].description.length, MAX_RSS_DESCRIPTION_CHARS)
+  assert.equal(parsed.items[0].description.length, MAX_FEED_DESCRIPTION_CHARS)
 })
 
 test('fetchRss: returns metadata, sends validators and handles 304', async () => {
@@ -147,7 +160,7 @@ test('fetchRss: returns metadata, sends validators and handles 304', async () =>
 test('fetchRss: enforces the response-size limit', async () => {
   await assert.rejects(fetchRss('https://example.com/feed.xml', {
     Parser: DOMParser,
-    fetchImpl: async () => new Response('x', { headers: { 'content-length': String(MAX_RSS_BYTES + 1) } })
+    fetchImpl: async () => new Response('x', { headers: { 'content-length': String(MAX_FEED_BYTES + 1) } })
   }), /larger than 2 MB/)
 })
 

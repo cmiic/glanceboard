@@ -3,9 +3,12 @@ import { browser } from '@/lib/browser.js'
 import { stripFramingHeaders, isFromOwnExtension, isApprovedTarget } from '@/lib/headers.js'
 import { checkHost } from '@/lib/monitor.js'
 import { stepDelay, delayUntilSlot } from '@/lib/schedule.js'
+import { refreshFeedSources } from '@/lib/feed-refresh.js'
+import { createFeedRefreshQueue } from '@/lib/feed-refresh-queue.js'
+import { nextFeedRefreshAt } from '@/lib/feed-polling.js'
 import {
   getHosts, getSettings, pushResult, ensureSeeded, migrateResultsToPerKey,
-  reconcileOriginPermissions, entryOrigin, entryLabel
+  reconcileOriginPermissions, entryOrigin, entryLabel, getFeedSources, getFeedCaches
 } from '@/lib/storage.js'
 
 // Firefox MV2 persistent background page. WXT imports this file in Node at build time to read the
@@ -14,6 +17,7 @@ export default defineBackground({
   persistent: true,
   main () {
     const ALARM = 'glanceboard-check'
+    const FEED_ALARM = 'glanceboard-feed-refresh'
     const FILTER = { urls: ['*://*/*'], types: ['sub_frame', 'xmlhttprequest'] }
     const EXT_BASE = browser.runtime.getURL('/') // our extension's moz-extension:// base URL
     const certCache = new Map() // hostname -> { certExpiresInDays, capturedAt }
@@ -128,8 +132,37 @@ export default defineBackground({
       }
     }
 
+    async function scheduleFeedRefresh (settings) {
+      if (!settings.feedPollingEnabled) {
+        await browser.alarms.clear(FEED_ALARM)
+        return
+      }
+      const sources = await getFeedSources()
+      const caches = await getFeedCaches(sources.map(source => source.id))
+      const when = nextFeedRefreshAt(sources, caches)
+      if (when == null) await browser.alarms.clear(FEED_ALARM)
+      else await browser.alarms.create(FEED_ALARM, { when: Math.max(Date.now() + 1000, when) })
+    }
+
+    const feedRefreshQueue = createFeedRefreshQueue({
+      getSettings,
+      refreshFeedSources,
+      scheduleFeedRefresh,
+      onError: (message, error) => console.error(message, error)
+    })
+
+    function enqueueFeedRefresh (sourceIds, options) {
+      return feedRefreshQueue.enqueue(sourceIds, options)
+    }
+
     browser.alarms.onAlarm.addListener((alarm) => {
       if (alarm.name === ALARM) runChecks().catch(err => console.error('Glanceboard runChecks failed', err))
+      if (alarm.name === FEED_ALARM) enqueueFeedRefresh(null).catch(err => console.error('Glanceboard scheduled feed refresh failed', err))
+    })
+
+    browser.runtime.onMessage.addListener((message) => {
+      if (message?.type !== 'refresh-feeds') return undefined
+      return enqueueFeedRefresh(Array.isArray(message.sourceIds) ? message.sourceIds : null, { force: !!message.force })
     })
 
     // Re-register the listener when hosts change; (re)schedule or stop checks when settings change.
@@ -140,7 +173,13 @@ export default defineBackground({
         approvedOrigins = new Set((changes.hosts.newValue || []).map(entryOrigin).filter(Boolean))
         registerWebRequest()
       }
-      if (changes.settings) await scheduleChecks(await getSettings())
+      if (changes.settings) {
+        const settings = await getSettings()
+        await scheduleChecks(settings)
+        await scheduleFeedRefresh(settings)
+      } else if (changes.feedSources) {
+        await scheduleFeedRefresh(await getSettings())
+      }
     })
 
     async function init () {
@@ -156,8 +195,12 @@ export default defineBackground({
       await reconcileOriginPermissions()
       const settings = await getSettings()
       await scheduleChecks(settings)
+      await scheduleFeedRefresh(settings)
       if ((Number(settings.intervalMinutes) || 0) >= 1) {
         runChecks().catch(err => console.error('Glanceboard initial run failed', err))
+      }
+      if (settings.feedPollingEnabled) {
+        enqueueFeedRefresh(null).catch(err => console.error('Glanceboard initial feed refresh failed', err))
       }
     }
 
