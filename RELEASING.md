@@ -116,6 +116,9 @@ responses are capped at 2 MB; XML rejects actual DOCTYPE declarations and is par
 DOMParser document. Only normalized text and HTTP(S) links/image/audio URLs are stored; feed markup
 is never rendered as HTML. Podcast audio is streamed from its enclosure host only after the user
 starts playback and is never cached. Read Later stores compact item metadata snapshots locally.
+Read/unread tracking is explicit: opening, playing, or saving an item does not mark it read. It stores
+only bounded source/item identifiers and read timestamps in storage.local, and serializes mutations
+through the background page so rapid actions from multiple dashboard tabs cannot overwrite each other.
 
 How to test: open the dashboard (toolbar button -> Open dashboard) -> Sites tab -> add any public site
 (for example https://example.com); it appears as a live preview tile. A path may be added too (for
@@ -124,7 +127,9 @@ https://rss.orf.at/news.xml, confirm the detected feed and create a group; its h
 feed tile. Additional feeds can be moved into that group from the Feeds tab. No login required.
 Atom and JSON Feed URLs can be added the same way. Podcast enclosures show a play button, and feed
 items can be saved to the dashboard's Read Later tab. To test opt-in polling, enable background feed
-refresh in Settings and choose Auto, fixed, or Off for a source in Feeds.
+refresh in Settings and choose Auto, fixed, or Off for a source in Feeds. To test read state, press the
+checkmark on several headlines and cycle the group filter through Unread, Read, and All; the selected
+filter and read markers persist after reopening the dashboard.
 
 Reproducible build: Node 24, then `npm install && npm run build` -> .output/firefox-mv2/.
 (npm install honors ignore-scripts=true; npm run build self-runs wxt prepare.)
@@ -207,6 +212,23 @@ remain sequential and keep stale headlines visible when one source fails.
 
 This release also improves feed discovery, permission handling, backup/restore, scheduling, and
 cache efficiency.
+```
+
+For 0.6.0:
+
+```text
+Feed groups now keep explicit read and unread status. Every group starts in an Unread view and
+remembers its selected Unread, Read, or All filter, with counts for each view. Mark a headline read
+with its checkmark or return it to unread later; opening links, playing podcasts, and saving to Read
+Later do not change read status.
+
+Filtering happens before the 30-headline tile limit, so each view shows its newest matching items.
+Read markers are bounded to the 500 newest per feed, remain with a feed when it moves between groups,
+and are removed when the feed is deleted.
+
+Versioned backups now include group filters and read markers, while older backups remain importable.
+This release also serializes read-state changes across dashboard tabs and strengthens cleanup during
+feed deletion and backup restoration.
 ```
 
 ## About the innerHTML validator warning

@@ -21,6 +21,8 @@ It is deliberately **soft monitoring**: a quick human glance, not a real monitor
   or both. Put several related feeds into one named tile and merge their newest headlines.
 - **Podcasts and Read Later.** Stream podcast episodes in a sticky dashboard player, resume where you
   stopped, and save compact item snapshots independently of their original feed.
+- **Read what matters.** Feed-group tiles default to unread headlines; explicitly mark items read or
+  unread and cycle each group through Unread, Read, and All views.
 - **Passive by default.** Out of the box Glanceboard makes **no background requests at all** — previews
   load only when you open the dashboard. Periodic background checks are strictly opt-in.
 - **Opt-in metrics.** Per site you can show **load time** and **TLS-certificate expiry**; both are hidden
@@ -59,6 +61,10 @@ security-sensitive headers). Firefox is also the only mainstream browser with ex
   images and descriptions per feed and set an optional description character limit (`0` keeps all),
   as well as to create or rename groups, move feeds, configure background refresh, re-grant access,
   or remove them.
+- Each group defaults to **Unread** and remembers its selected Unread, Read, or All filter. The filter
+  shows the matching cached-item count and is applied before the 30-headline display limit. Use the
+  item checkmark to mark a headline read and the return-arrow button to mark it unread again. Opening,
+  playing, or saving an item to Read Later does not change its read status.
 - Feed data is fetched sequentially when the dashboard opens and when you press a feed tile's refresh
   button. With background polling off, opening checks every feed; with polling enabled, it checks
   only missing or scheduled-due feeds. A tile's refresh button always checks immediately. The latest
@@ -72,7 +78,8 @@ security-sensitive headers). Firefox is also the only mainstream browser with ex
   Podcast enclosures and audio attachments can be streamed in one dashboard-scoped player with
   seeking, playback speed, and local resume positions.
 - Use ☆ to add an item to the dashboard-only **Read Later** list. Its compact snapshot survives feed
-  deletion; up to 500 entries are retained until you remove them. Read/unread tracking is not included.
+  deletion; up to 500 entries are retained until you remove them. Read markers are tracked separately,
+  with the 500 newest markers retained per feed and removed when that feed is deleted.
 
 ## Known limitations
 
@@ -128,8 +135,9 @@ Publishing to AMO — build, submit, and the reviewer notes — is documented in
 - **Metrics** — default cert/load tile visibility for new sites, plus show/hide-all.
 - **Notifications** — local alert when a host goes down (only while checks are on).
 - **Card size** and **Layout** (auto / desktop / mobile).
-- **Export / Import** sites, typed feeds, feed-group membership, polling choices, and Read Later as
-  versioned JSON. Feed caches, global settings, and podcast resume positions are not exported.
+- **Export / Import** sites, typed feeds, feed-group membership, group filters, polling choices, Read
+  Later, and read markers as versioned JSON. Feed caches, global settings, and podcast resume positions
+  are not exported.
   Existing host-only and older feed exports remain importable.
 
 ## Opening it / setting it as your home page

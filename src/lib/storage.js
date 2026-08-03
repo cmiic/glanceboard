@@ -2,6 +2,9 @@ import { browser } from './browser.js'
 import { normalizeTarget } from './url.js'
 import { normalizeAudio, normalizeHttpUrl } from './rss.js'
 import { feedGroupNameKey, feedSourceDisplay, feedSourceRefresh } from './feed-settings.js'
+import { feedGroupItemFilter, MAX_FEED_READ_ITEMS, normalizeFeedReadItems } from './feed-read.js'
+
+export { MAX_FEED_READ_ITEMS } from './feed-read.js'
 
 // storage.local schema:
 //   hosts:      [{ id, url, hostname, origin, label, addedAt, metrics:{cert,load}, layout:{x,y,w,h} }]
@@ -16,8 +19,9 @@ import { feedGroupNameKey, feedSourceDisplay, feedSourceRefresh } from './feed-s
 //   settings:   { intervalMinutes, previewIntervalMinutes, feedPollingEnabled, mode, notificationsEnabled, maxSamples, cardMinWidth, metricDefaults }
 //   feedSources:[{ id, type, url, discoveredFrom, title, groupId, addedAt,
 //                  display:{showImage,showDescription,descriptionMaxChars}, refresh:{mode,intervalMinutes} }]
-//   feedGroups: [{ id, name, addedAt, layout:{x,y,w,h} }]
+//   feedGroups: [{ id, name, addedAt, itemFilter:'unread'|'read'|'all', layout:{x,y,w,h} }]
 //   feed-cache:<id>: { fetchedAt, etag, lastModified, channel, items, error }
+//   feed-read:<id>:  { items:[{ id, readAt }] } (newest 500 explicit read markers)
 //   readLater:  compact feed-item snapshots (max 500)
 //   podcastProgress: { [audio URL]: { positionSeconds, durationSeconds, updatedAt } }
 //   seeded:     true once the (currently empty) default host list has been written
@@ -28,6 +32,7 @@ const KEYS = {
 // Per-entry results key prefix. `result:<entry id>` → that site's or page's rolling history.
 const RESULT_PREFIX = 'result:'
 const FEED_CACHE_PREFIX = 'feed-cache:'
+const FEED_READ_PREFIX = 'feed-read:'
 
 // No default hosts — the user adds their own. (Kept as an empty list so seeding a default
 // set later is trivial if ever wanted.)
@@ -97,6 +102,106 @@ export async function getFeedCaches (sourceIds) {
 export async function getAllFeedCaches () {
   const sources = await getFeedSources()
   return getFeedCaches(sources.map(source => source.id))
+}
+
+export async function getFeedReadStates (sourceIds) {
+  const ids = [...new Set((sourceIds || []).filter(id => typeof id === 'string' && id))]
+  if (!ids.length) return {}
+  const keys = ids.map(id => FEED_READ_PREFIX + id)
+  const stored = await browser.storage.local.get(keys)
+  return Object.fromEntries(ids.flatMap(id => {
+    const state = stored?.[FEED_READ_PREFIX + id]
+    if (state == null) return []
+    return [[id, { items: normalizeFeedReadItems(state.items) }]]
+  }))
+}
+
+export async function setFeedItemRead (sourceId, itemId, read, readAt = Date.now()) {
+  const id = String(itemId ?? '')
+  if (!id) throw new Error('Feed item ID is required')
+  if (!(await getFeedSources()).some(source => source.id === sourceId)) throw new Error('Feed source not found')
+
+  const key = FEED_READ_PREFIX + sourceId
+  const stored = await browser.storage.local.get(key)
+  const current = normalizeFeedReadItems(stored?.[key]?.items)
+  const existing = current.find(item => item.id === id)
+  let items
+  if (read) {
+    const timestamp = Number(readAt)
+    if (!Number.isFinite(timestamp) || timestamp < 0) throw new Error('Invalid read timestamp')
+    items = existing
+      ? current
+      : normalizeFeedReadItems([{ id, readAt: timestamp }, ...current], MAX_FEED_READ_ITEMS)
+  } else {
+    items = current.filter(item => item.id !== id)
+  }
+
+  if (items.length) await browser.storage.local.set({ [key]: { items } })
+  else await browser.storage.local.remove(key)
+
+  // A feed can be removed in another tab while this read-modify-write is in flight. Whichever
+  // operation finishes last performs cleanup, so an item click cannot resurrect orphaned state.
+  if (!(await getFeedSources()).some(source => source.id === sourceId)) {
+    await browser.storage.local.remove(key)
+    return { items: [] }
+  }
+  return { items }
+}
+
+export async function mergeFeedReadState (imported) {
+  const sources = await getFeedSources()
+  const sourceByUrl = new Map(sources.map(source => [normalizeHttpUrl(source.url), source]).filter(([url]) => url))
+  const importedBySource = new Map()
+  for (const entry of (Array.isArray(imported) ? imported : [])) {
+    const source = sourceByUrl.get(normalizeHttpUrl(entry?.sourceUrl))
+    if (!source) continue
+    importedBySource.set(source.id, {
+      source,
+      items: normalizeFeedReadItems([...(importedBySource.get(source.id)?.items || []), ...(entry.items || [])])
+    })
+  }
+  const matched = [...importedBySource.values()]
+  if (!matched.length) return { states: {}, importedCount: 0 }
+
+  const current = await getFeedReadStates(matched.map(entry => entry.source.id))
+  const writes = {}
+  const changedBySource = new Map()
+  for (const { source, items } of matched) {
+    const previous = current[source.id]?.items || []
+    const previousById = new Map(previous.map(item => [item.id, item]))
+    const merged = normalizeFeedReadItems([...previous, ...items])
+    const mergedById = new Map(merged.map(item => [item.id, item]))
+    const changed = items.reduce((count, item) => {
+      const before = previousById.get(item.id)
+      const after = mergedById.get(item.id)
+      return count + (after && (!before || after.readAt !== before.readAt) ? 1 : 0)
+    }, 0)
+    if (changed) {
+      writes[FEED_READ_PREFIX + source.id] = { items: merged }
+      changedBySource.set(source.id, changed)
+    }
+  }
+  if (Object.keys(writes).length) await browser.storage.local.set(writes)
+  const existingAfter = new Set((await getFeedSources()).map(source => source.id))
+  const orphaned = Object.keys(writes).filter(key => !existingAfter.has(key.slice(FEED_READ_PREFIX.length)))
+  if (orphaned.length) {
+    await browser.storage.local.remove(orphaned)
+    for (const key of orphaned) delete writes[key]
+  }
+  return {
+    states: Object.fromEntries(Object.entries(writes).map(([key, value]) => [key.slice(FEED_READ_PREFIX.length), value])),
+    importedCount: [...changedBySource].reduce((count, [sourceId, changed]) =>
+      count + (existingAfter.has(sourceId) ? changed : 0), 0)
+  }
+}
+
+export async function reconcileFeedReadState () {
+  const [sources, stored] = await Promise.all([getFeedSources(), browser.storage.local.get(null)])
+  const sourceIds = new Set(sources.map(source => source.id))
+  const orphaned = Object.keys(stored || {})
+    .filter(key => key.startsWith(FEED_READ_PREFIX) && !sourceIds.has(key.slice(FEED_READ_PREFIX.length)))
+  if (orphaned.length) await browser.storage.local.remove(orphaned)
+  return orphaned
 }
 
 // Vue makes objects placed in refs deeply reactive. Firefox storage uses the structured-clone
@@ -231,13 +336,22 @@ export function suggestGroupName (base, groups) {
   return name
 }
 
-export async function createFeedGroup (name) {
+export async function createFeedGroup (name, { itemFilter = 'unread' } = {}) {
   const groups = await getFeedGroups()
   const clean = cleanGroupName(name)
   if (groupNameExists(groups, clean)) throw new Error('A feed group with this name already exists')
-  const group = { id: newGroupId(), name: clean, addedAt: Date.now() }
+  const group = { id: newGroupId(), name: clean, addedAt: Date.now(), itemFilter: feedGroupItemFilter({ itemFilter }) }
   await browser.storage.local.set({ [KEYS.feedGroups]: [...groups, group] })
   return group
+}
+
+export async function setFeedGroupItemFilter (id, itemFilter) {
+  const groups = await getFeedGroups()
+  if (!groups.some(group => group.id === id)) throw new Error('Feed group not found')
+  const normalized = feedGroupItemFilter({ itemFilter })
+  const next = groups.map(group => group.id === id ? { ...group, itemFilter: normalized } : group)
+  await browser.storage.local.set({ [KEYS.feedGroups]: next })
+  return next
 }
 
 export async function renameFeedGroup (id, name) {
@@ -257,7 +371,7 @@ function buildFeedAddition (sources, groups, items, { groupId = null, groupName 
   if (!group) {
     const clean = cleanGroupName(groupName)
     if (groupNameExists(groups, clean)) throw new Error('A feed group with this name already exists')
-    group = { id: newGroupId(), name: clean, addedAt: Date.now() }
+    group = { id: newGroupId(), name: clean, addedAt: Date.now(), itemFilter: 'unread' }
     nextGroups = [...groups, group]
   }
 
@@ -474,7 +588,7 @@ export async function removeFeedSource (id) {
   const removed = sources.find(source => source.id === id)
   const next = sources.filter(source => source.id !== id)
   await browser.storage.local.set({ [KEYS.feedSources]: next })
-  await browser.storage.local.remove(FEED_CACHE_PREFIX + id)
+  await browser.storage.local.remove([FEED_CACHE_PREFIX + id, FEED_READ_PREFIX + id])
   if (removed) await revokeOriginIfUnused(removed.url, hosts, next)
   return next
 }
@@ -485,7 +599,11 @@ export async function removeFeedGroup (id) {
   const nextGroups = groups.filter(group => group.id !== id)
   const nextSources = sources.filter(source => source.groupId !== id)
   await browser.storage.local.set({ [KEYS.feedGroups]: nextGroups, [KEYS.feedSources]: nextSources })
-  if (removedSources.length) await browser.storage.local.remove(removedSources.map(source => FEED_CACHE_PREFIX + source.id))
+  if (removedSources.length) {
+    await browser.storage.local.remove(removedSources.flatMap(source => [
+      FEED_CACHE_PREFIX + source.id, FEED_READ_PREFIX + source.id
+    ]))
+  }
   const removedUrlsByPattern = new Map(removedSources.map(source => [originPattern(source.url), source.url]))
   for (const url of removedUrlsByPattern.values()) await revokeOriginIfUnused(url, hosts, nextSources)
   return { groups: nextGroups, sources: nextSources }

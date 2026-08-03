@@ -4,7 +4,7 @@ import { browser } from '@/lib/browser.js'
 import {
   setSettings, getHosts, addHost, setAllHostsMetric, resetTileLayouts,
   getFeedGroups, getFeedSources, getReadLater, createFeedGroup, addFeedSources, mergeReadLater,
-  previewReadLaterMerge
+  previewReadLaterMerge, getFeedReadStates, mergeFeedReadState
 } from '@/lib/storage.js'
 import { normalizeTarget } from '@/lib/url.js'
 import { buildExportDocument, normalizeImportFeed, parseImportDocument } from '@/lib/backup.js'
@@ -70,7 +70,8 @@ const importNotice = ref('')
 
 async function exportHosts () {
   const [hosts, groups, sources, saved] = await Promise.all([getHosts(), getFeedGroups(), getFeedSources(), getReadLater()])
-  const backup = buildExportDocument(hosts, groups, sources, saved)
+  const readStates = await getFeedReadStates(sources.map(source => source.id))
+  const backup = buildExportDocument(hosts, groups, sources, saved, readStates)
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -92,9 +93,13 @@ function onFile (e) {
     let imported
     try {
       const parsed = JSON.parse(String(reader.result))
-      const { sites, feedGroups, readLater } = parseImportDocument(parsed)
-      if (!sites.length && !feedGroups.length && !readLater.length) { importError.value = 'No sites, feed groups, or saved items found in file'; pending.value = null; return }
-      imported = { sites, feedGroups, readLater }
+      const { sites, feedGroups, readLater, feedReadState } = parseImportDocument(parsed)
+      if (!sites.length && !feedGroups.length && !readLater.length && !feedReadState.length) {
+        importError.value = 'No sites, feed groups, saved items, or read markers found in file'
+        pending.value = null
+        return
+      }
+      imported = { sites, feedGroups, readLater, feedReadState }
     } catch {
       importError.value = 'Invalid JSON file'
       pending.value = null
@@ -123,8 +128,8 @@ async function doImport () {
   const feedCount = validGroups.reduce((count, group) => count + group.feeds.length, 0)
   const skipped = pending.value.sites.length - validSites.length +
     pending.value.feedGroups.reduce((count, group) => count + group.feeds.length, 0) - feedCount
-  if (!validSites.length && !validGroups.length && !pending.value.readLater.length) {
-    importError.value = 'No valid sites, feeds, or saved items found in the file'
+  if (!validSites.length && !validGroups.length && !pending.value.readLater.length && !pending.value.feedReadState.length) {
+    importError.value = 'No valid sites, feeds, saved items, or read markers found in the file'
     return
   }
   const origins = [...new Set([
@@ -142,14 +147,17 @@ async function doImport () {
       const importedNameKey = feedGroupNameKey(imported.name)
       let group = currentGroups.find(item => feedGroupNameKey(item.name) === importedNameKey)
       if (!group) {
-        group = await createFeedGroup(imported.name)
+        group = await createFeedGroup(imported.name, { itemFilter: imported.itemFilter })
         currentGroups = await getFeedGroups()
       }
       if (imported.feeds.length) await addFeedSources(imported.feeds, { groupId: group.id })
     }
     if (pending.value.readLater.length) await mergeReadLater(pending.value.readLater)
+    const readResult = pending.value.feedReadState.length
+      ? await mergeFeedReadState(pending.value.feedReadState)
+      : { importedCount: 0 }
     importError.value = ''
-    importNotice.value = `Imported ${validSites.length} site(s), ${feedCount} feed(s), ${validGroups.length} group(s), and ${pending.value.readLater.length} saved item(s)` +
+    importNotice.value = `Imported ${validSites.length} site(s), ${feedCount} feed(s), ${validGroups.length} group(s), ${pending.value.readLater.length} saved item(s), and ${readResult.importedCount} read marker(s)` +
       (skipped ? `; skipped ${skipped} invalid` : '')
     pending.value = null
   } catch (e) {
@@ -454,7 +462,8 @@ async function doImport () {
         >
           Grant &amp; import {{ pending.sites.length }} site(s) and
           {{ pending.feedGroups.reduce((count, group) => count + group.feeds.length, 0) }} feed(s),
-          {{ pending.readLater.length }} saved item(s)
+          {{ pending.readLater.length }} saved item(s),
+          {{ pending.feedReadState.reduce((count, entry) => count + entry.items.length, 0) }} read marker(s)
         </button>
       </div>
       <span
