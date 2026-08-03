@@ -26,8 +26,9 @@ Suites:
 - `test/feed-discovery.test.js` — multi-format HTML/header/common-path discovery, redirects, direct
   feeds, and the ORF adapter.
 - `test/feed-adapters.test.js` — typed feed and discovery extension-point registries.
-- `test/feed-polling.test.js` and `test/feed-refresh.test.js` — adaptive scheduling, backoff, due-source
-  selection, sequential refresh, permission failures, stale fallback, and batched cache writes.
+- `test/feed-polling.test.js`, `test/feed-refresh.test.js`, and `test/feed-refresh-queue.test.js` —
+  adaptive scheduling, backoff, due-source selection, queue coalescing and alarm reconstruction,
+  sequential refresh, permission failures, stale fallback, and batched cache writes.
 - `test/backup.test.js` — versioned site/feed/Read Later export plus legacy import compatibility.
 
 Browser-coupled code (the background page, Vue components, iframe behaviour) is verified manually.
