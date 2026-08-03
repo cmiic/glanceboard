@@ -52,7 +52,7 @@ test('refreshFeedSources refreshes sequentially and batches successful caches', 
   try {
     const result = await refreshFeedSources(null, { force: true, now: () => 1000 })
     assert.equal(maximum, 1)
-    assert.equal(result.refreshed.length, 2)
+    assert.equal(result.attempted.length, 2)
     assert.equal(result.failures.length, 0)
     assert.ok(data['feed-cache:rss:https://a.test/feed'].schedule.nextRefreshAt > 1000)
     assert.deepEqual(new Set(setCalls.at(-1)), new Set([
@@ -76,6 +76,7 @@ test('refreshFeedSources keeps stale items and isolates a missing permission', a
   const result = await refreshFeedSources(null, { force: true, now: () => 2000 })
   browser.permissions.contains = async () => true
   assert.equal(result.failures.length, 1)
+  assert.deepEqual(result.attempted, ['rss:https://a.test/feed'])
   assert.equal(data['feed-cache:rss:https://a.test/feed'].items[0].id, 'kept')
   assert.match(data['feed-cache:rss:https://a.test/feed'].error.message, /permission/)
 })

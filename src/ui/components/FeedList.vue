@@ -273,7 +273,7 @@ async function grant (source) {
               @change="updateRefresh(source, $event.target.value)"
             >
               <option value="auto">Auto</option>
-              <option value="off">Off</option>
+              <option value="off">Off (background only)</option>
               <option
                 v-for="minutes in [15, 30, 60, 180, 360, 720, 1440]"
                 :key="minutes"

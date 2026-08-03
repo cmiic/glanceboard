@@ -15,7 +15,7 @@ test('feed refresh queue coalesces pending peers and scopes each result', async 
     getSettings: () => settingsReady.promise,
     refreshFeedSources: async (sourceIds, options) => {
       calls.push({ sourceIds, options })
-      return { refreshed: ['a', 'b'], failures: [{ sourceId: 'b', message: 'failed' }] }
+      return { attempted: ['a', 'b'], failures: [{ sourceId: 'b', message: 'failed' }] }
     },
     scheduleFeedRefresh: async () => {}
   })
@@ -24,8 +24,8 @@ test('feed refresh queue coalesces pending peers and scopes each result', async 
   const second = queue.enqueue(['b'], { force: true })
   settingsReady.resolve({ feedPollingEnabled: false })
 
-  assert.deepEqual(await first, { refreshed: ['a'], failures: [] })
-  assert.deepEqual(await second, { refreshed: ['b'], failures: [{ sourceId: 'b', message: 'failed' }] })
+  assert.deepEqual(await first, { attempted: ['a'], failures: [] })
+  assert.deepEqual(await second, { attempted: ['b'], failures: [{ sourceId: 'b', message: 'failed' }] })
   assert.deepEqual(calls, [{
     sourceIds: ['a', 'b'], options: { force: true, pollingEnabled: false }
   }])
@@ -51,11 +51,11 @@ test('feed refresh queue does not reject successful work when alarm scheduling f
   const errors = []
   const queue = createFeedRefreshQueue({
     getSettings: async () => ({ feedPollingEnabled: true }),
-    refreshFeedSources: async () => ({ refreshed: ['a'], failures: [] }),
+    refreshFeedSources: async () => ({ attempted: ['a'], failures: [] }),
     scheduleFeedRefresh: async () => { throw new Error('alarm unavailable') },
     onError: (message, error) => errors.push(`${message}: ${error.message}`)
   })
 
-  assert.deepEqual(await queue.enqueue(['a']), { refreshed: ['a'], failures: [] })
+  assert.deepEqual(await queue.enqueue(['a']), { attempted: ['a'], failures: [] })
   assert.match(errors[0], /rescheduling failed: alarm unavailable/)
 })

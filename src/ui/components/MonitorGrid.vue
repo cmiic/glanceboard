@@ -15,7 +15,7 @@ const props = defineProps({
   feedGroups: { type: Array, default: () => [] },
   feedSources: { type: Array, default: () => [] },
   feedCaches: { type: Object, default: () => ({}) },
-  savedIds: { type: Object, default: () => new Set() },
+  savedIds: { type: Set, default: () => new Set() },
   results: { type: Object, default: () => ({}) },
   settings: { type: Object, default: () => ({}) }
 })

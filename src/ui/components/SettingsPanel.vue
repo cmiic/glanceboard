@@ -88,14 +88,25 @@ function onFile (e) {
   e.target.value = '' // allow re-picking the same file
   if (!file) return
   const reader = new FileReader()
-  reader.onload = () => {
+  reader.onload = async () => {
+    let imported
     try {
       const parsed = JSON.parse(String(reader.result))
       const { sites, feedGroups, readLater } = parseImportDocument(parsed)
       if (!sites.length && !feedGroups.length && !readLater.length) { importError.value = 'No sites, feed groups, or saved items found in file'; pending.value = null; return }
-      pending.value = { sites, feedGroups, readLater }
+      imported = { sites, feedGroups, readLater }
     } catch {
       importError.value = 'Invalid JSON file'
+      pending.value = null
+      return
+    }
+    try {
+      // File inspection is outside the later confirmation click, so this storage round-trip cannot
+      // consume the user gesture Firefox requires for permissions.request().
+      if (imported.readLater.length) await previewReadLaterMerge(imported.readLater)
+      pending.value = imported
+    } catch (error) {
+      importError.value = error?.message || String(error)
       pending.value = null
     }
   }
@@ -121,9 +132,8 @@ async function doImport () {
     ...validGroups.flatMap(group => group.feeds.map(feed => normalizeTarget(feed.url).originPattern))
   ])]
   try {
-    // Validate the Read Later cap before any permission or storage writes so an oversized restore
-    // cannot leave sites and feeds imported while its saved items fail afterward.
-    if (pending.value.readLater.length) await previewReadLaterMerge(pending.value.readLater)
+    // Deliberately the first awaited operation in this click handler: Firefox requires optional
+    // permission requests to remain tied to the user's confirmation gesture.
     const granted = !origins.length || await browser.permissions.request({ origins })
     if (!granted) { importError.value = 'Permission is needed to import these sites and feeds'; return }
     for (const url of validSites) await addHost(url).catch(() => {})
@@ -274,7 +284,8 @@ async function doImport () {
         Auto adapts between hourly and daily checks from the feed's recent publication cadence.
         Opening the dashboard then refreshes only missing or scheduled-due feeds; a tile's refresh
         button always checks it immediately. Background refresh updates cached items but does not
-        send notifications.
+        send notifications. A per-feed Off choice disables scheduled background checks only; the
+        feed is still checked when the dashboard opens or you refresh its tile.
       </p>
     </div>
 

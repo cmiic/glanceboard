@@ -65,7 +65,9 @@ security-sensitive headers). Firefox is also the only mainstream browser with ex
   50 normalized items per feed are cached locally, so a temporary failure leaves the previous
   headlines visible. Optional background refresh is globally off by default; when enabled, each feed
   can be Off, fixed at 15 minutes–24 hours, or Auto (adapting hourly–daily from recent publication
-  dates). Background refresh never creates feed notifications.
+  dates). Per-feed Off suppresses scheduled background checks only; feeds are still checked when the
+  dashboard opens or their tile is refreshed manually. Background refresh never creates feed
+  notifications.
 - RSS 1.0/2.0, Atom, and JSON Feed 1.0/1.1 are supported. Remote markup is reduced to plain text.
   Podcast enclosures and audio attachments can be streamed in one dashboard-scoped player with
   seeking, playback speed, and local resume positions.

@@ -13,7 +13,7 @@ const props = defineProps({
   reloadNonce: { type: Number, default: 0 },
   arrangeable: { type: Boolean, default: false },
   pollingEnabled: { type: Boolean, default: false },
-  savedIds: { type: Object, default: () => new Set() }
+  savedIds: { type: Set, default: () => new Set() }
 })
 
 const emit = defineEmits(['dragstart', 'resizestart', 'loaded', 'play'])

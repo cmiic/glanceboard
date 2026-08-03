@@ -8,7 +8,7 @@ function resultForJob (result, sourceIds) {
   const requested = new Set(sourceIds)
   return {
     ...result,
-    refreshed: (result?.refreshed || []).filter(id => requested.has(id)),
+    attempted: (result?.attempted || []).filter(id => requested.has(id)),
     failures: (result?.failures || []).filter(item => requested.has(item.sourceId))
   }
 }

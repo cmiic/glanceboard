@@ -38,5 +38,5 @@ export async function refreshFeedSources (sourceIds = null, {
     }
   }
   const written = await setFeedCachesForExistingSources(updates)
-  return { refreshed: Object.keys(written), failures }
+  return { attempted: Object.keys(written), failures }
 }

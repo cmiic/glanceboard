@@ -65,7 +65,9 @@ Build (`npm run build`) and load `.output/firefox-mv2/manifest.json` via `about:
   enable notifications → expect a "host unreachable" notification on the next cycle.
 - **Export / Import:** export the data, remove sites/groups/saved items, re-import → one permission
   prompt restores site URLs, typed feed URLs, empty groups, group membership, polling choices, and
-  Read Later. Also import an older `{ "hosts": [...] }` file.
+  Read Later. Use a v4 file containing both Read Later items and permission-requiring sites/feeds;
+  Firefox must show the permission prompt without a user-gesture error. Also import an older
+  `{ "hosts": [...] }` file.
 
 ## Adding a test
 
