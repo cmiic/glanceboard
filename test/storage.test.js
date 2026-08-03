@@ -123,6 +123,9 @@ test('removeHost: keeps the permission while another host shares the origin patt
 test('feed groups: create, rename, enforce unique names and move sources', async () => {
   const first = await storage.createFeedGroup('Security')
   const second = await storage.createFeedGroup('Fun')
+  assert.equal(first.itemFilter, 'unread')
+  await storage.setFeedGroupItemFilter(first.id, 'all')
+  assert.equal((await storage.getFeedGroups()).find(group => group.id === first.id).itemFilter, 'all')
   await assert.rejects(storage.createFeedGroup(' security '), /already exists/)
   const writesBeforeUnknownMove = storageSetCalls.length
   await assert.rejects(storage.moveFeedSource('rss:https://missing.example/feed', first.id), /Feed source not found/)
@@ -141,6 +144,81 @@ test('feed groups: create, rename, enforce unique names and move sources', async
   assert.equal(sources[0].groupId, second.id)
   await storage.renameFeedGroup(second.id, 'Entertainment')
   assert.equal((await storage.getFeedGroups()).find(group => group.id === second.id).name, 'Entertainment')
+})
+
+test('feed read state marks, unmarks, caps, moves and cleans up with its source', async () => {
+  const first = await storage.createFeedGroup('First')
+  const second = await storage.createFeedGroup('Second')
+  const { added } = await storage.addFeedSources([{ url: 'https://example.com/feed' }], { groupId: first.id })
+  const source = added[0]
+
+  await storage.setFeedItemRead(source.id, 'one', true, 10)
+  await storage.setFeedItemRead(source.id, 'one', true, 20)
+  assert.deepEqual((await storage.getFeedReadStates([source.id]))[source.id].items, [{ id: 'one', readAt: 10 }])
+  await storage.setFeedItemRead(source.id, 'one', false)
+  assert.deepEqual(await storage.getFeedReadStates([source.id]), {})
+
+  data[`feed-read:${source.id}`] = {
+    items: Array.from({ length: storage.MAX_FEED_READ_ITEMS }, (_, index) => ({ id: String(index), readAt: index }))
+  }
+  await storage.setFeedItemRead(source.id, 'new', true, 1000)
+  let state = (await storage.getFeedReadStates([source.id]))[source.id]
+  assert.equal(state.items.length, storage.MAX_FEED_READ_ITEMS)
+  assert.equal(state.items[0].id, 'new')
+  assert.equal(state.items.some(item => item.id === '0'), false)
+
+  await storage.moveFeedSource(source.id, second.id)
+  assert.equal((await storage.getFeedReadStates([source.id]))[source.id].items[0].id, 'new')
+  await storage.removeFeedSource(source.id)
+  assert.equal(data[`feed-read:${source.id}`], undefined)
+})
+
+test('feed read state imports by canonical URL and removes orphans and deletion races', async () => {
+  const group = await storage.createFeedGroup('News')
+  const { added } = await storage.addFeedSources([{ url: 'https://example.com/feed' }], { groupId: group.id })
+  const source = added[0]
+  await storage.setFeedItemRead(source.id, 'local', true, 1)
+  await storage.mergeFeedReadState([
+    { sourceUrl: 'https://example.com/feed#ignored', items: [{ id: 'imported', readAt: 2 }] },
+    { sourceUrl: 'https://missing.example/feed', items: [{ id: 'missing', readAt: 3 }] }
+  ])
+  assert.deepEqual((await storage.getFeedReadStates([source.id]))[source.id].items, [
+    { id: 'imported', readAt: 2 }, { id: 'local', readAt: 1 }
+  ])
+
+  data['feed-read:orphan'] = { items: [{ id: 'old', readAt: 1 }] }
+  assert.deepEqual(await storage.reconcileFeedReadState(), ['feed-read:orphan'])
+  assert.equal(data['feed-read:orphan'], undefined)
+
+  afterStorageSet = async writes => {
+    if (`feed-read:${source.id}` in writes) data.feedSources = []
+  }
+  await storage.setFeedItemRead(source.id, 'racing', true, 4)
+  assert.equal(data[`feed-read:${source.id}`], undefined)
+})
+
+test('feed read-state import cannot resurrect a source removed during its batch write', async () => {
+  const group = await storage.createFeedGroup('Import race')
+  const { added } = await storage.addFeedSources([{ url: 'https://example.com/feed' }], { groupId: group.id })
+  const source = added[0]
+  afterStorageSet = async writes => {
+    if (`feed-read:${source.id}` in writes) data.feedSources = []
+  }
+  const result = await storage.mergeFeedReadState([
+    { sourceUrl: source.url, items: [{ id: 'racing', readAt: 4 }] }
+  ])
+  assert.equal(data[`feed-read:${source.id}`], undefined)
+  assert.deepEqual(result, { states: {}, importedCount: 0 })
+})
+
+test('removing a feed group removes every member read-state record', async () => {
+  const group = await storage.createFeedGroup('Delete me')
+  const { added } = await storage.addFeedSources([
+    { url: 'https://a.example/feed' }, { url: 'https://b.example/feed' }
+  ], { groupId: group.id })
+  for (const source of added) await storage.setFeedItemRead(source.id, 'one', true, 1)
+  await storage.removeFeedGroup(group.id)
+  assert.ok(added.every(source => data[`feed-read:${source.id}`] == null))
 })
 
 test('feed URLs are globally deduplicated across adapter types and refresh settings validate', async () => {

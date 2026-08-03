@@ -62,6 +62,8 @@ HTTP(S).
 Remote images load lazily without an HTTP referrer and can be disabled per feed. Starting podcast
 playback makes a streaming request to the enclosure or attachment host; audio bytes are never cached by
 Glanceboard. Read Later stores compact metadata snapshots locally, not article or media contents.
+Read/unread tracking stores only bounded feed-source/item identifiers and read timestamps locally. These
+markers are included when you explicitly export a Glanceboard backup and are removed with their feed.
 
 ## Reporting a vulnerability
 

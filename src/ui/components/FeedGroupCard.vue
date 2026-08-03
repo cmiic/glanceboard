@@ -2,13 +2,15 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { browser } from '@/lib/browser.js'
 import { mergeFeedItems, truncateFeedDescription } from '@/lib/rss.js'
-import { readLaterId, removeReadLater, saveReadLater } from '@/lib/storage.js'
+import { readLaterId, removeReadLater, saveReadLater, setFeedGroupItemFilter } from '@/lib/storage.js'
 import { feedSourceDisplay } from '@/lib/feed-settings.js'
+import { feedGroupItemFilter, nextFeedItemFilter, prepareFeedItems } from '@/lib/feed-read.js'
 
 const props = defineProps({
   group: { type: Object, required: true },
   sources: { type: Array, default: () => [] },
   caches: { type: Object, default: () => ({}) },
+  readStates: { type: Object, default: () => ({}) },
   mode: { type: String, default: 'desktop' },
   reloadNonce: { type: Number, default: 0 },
   arrangeable: { type: Boolean, default: false },
@@ -20,10 +22,28 @@ const emit = defineEmits(['dragstart', 'resizestart', 'loaded', 'play'])
 const cardEl = ref(null)
 const busy = ref(false)
 const runError = ref('')
+const pendingReadIds = ref(new Set())
+const filterBusy = ref(false)
+
+const currentFilter = computed(() => feedGroupItemFilter(props.group))
+const preparedItems = computed(() => prepareFeedItems(
+  mergeFeedItems(props.sources, props.caches, Infinity),
+  props.readStates,
+  currentFilter.value
+))
+const filterLabel = computed(() => {
+  const label = currentFilter.value[0].toUpperCase() + currentFilter.value.slice(1)
+  return `${label} ${preparedItems.value.counts[currentFilter.value]}`
+})
+const emptyText = computed(() => {
+  if (currentFilter.value === 'unread') return 'No unread items'
+  if (currentFilter.value === 'read') return 'No read items'
+  return 'No feed items available'
+})
 
 const items = computed(() => {
   const byId = new Map(props.sources.map(source => [source.id, source]))
-  return mergeFeedItems(props.sources, props.caches).map(item => {
+  return preparedItems.value.items.map(item => {
     const display = feedSourceDisplay(byId.get(item.sourceId))
     return {
       ...item,
@@ -34,6 +54,18 @@ const items = computed(() => {
     }
   })
 })
+
+async function cycleFilter () {
+  if (filterBusy.value) return
+  filterBusy.value = true
+  try {
+    await setFeedGroupItemFilter(props.group.id, nextFeedItemFilter(currentFilter.value))
+  } catch (error) {
+    runError.value = error?.message || String(error)
+  } finally {
+    filterBusy.value = false
+  }
+}
 const failedCount = computed(() => props.sources.filter(source => props.caches[source.id]?.error).length)
 const lastUpdated = computed(() => Math.max(0, ...props.sources.map(source => props.caches[source.id]?.fetchedAt || 0)))
 const lastUpdatedText = computed(() => lastUpdated.value
@@ -100,6 +132,27 @@ async function toggleSaved (item) {
   }
 }
 
+async function toggleRead (item) {
+  const key = `${item.sourceId}\u001f${item.id}`
+  if (pendingReadIds.value.has(key)) return
+  pendingReadIds.value = new Set([...pendingReadIds.value, key])
+  try {
+    await browser.runtime.sendMessage({
+      type: 'set-feed-item-read', sourceId: item.sourceId, itemId: String(item.id), read: !item.isRead
+    })
+  } catch (error) {
+    runError.value = error?.message || String(error)
+  } finally {
+    const next = new Set(pendingReadIds.value)
+    next.delete(key)
+    pendingReadIds.value = next
+  }
+}
+
+function readMutationPending (item) {
+  return pendingReadIds.value.has(`${item.sourceId}\u001f${item.id}`)
+}
+
 let mobileObserver = null
 let loadedOnce = false
 onMounted(() => {
@@ -137,6 +190,16 @@ watch(() => props.reloadNonce, (next, previous) => { if (next !== previous) load
       >{{ group.name }}</span>
       <span class="feed-count">{{ sources.length }} feed{{ sources.length === 1 ? '' : 's' }}</span>
       <button
+        class="btn btn-sm feed-filter"
+        type="button"
+        :title="`Showing ${currentFilter} items; click to show ${nextFeedItemFilter(currentFilter)}`"
+        :aria-label="`Showing ${currentFilter} items; show ${nextFeedItemFilter(currentFilter)}`"
+        :disabled="filterBusy"
+        @click="cycleFilter"
+      >
+        {{ filterLabel }}
+      </button>
+      <button
         class="btn btn-icon btn-sm"
         type="button"
         title="Refresh feeds"
@@ -158,12 +221,13 @@ watch(() => props.reloadNonce, (next, previous) => { if (next !== previous) load
         v-if="!items.length"
         class="placeholder feed-placeholder"
       >
-        {{ busy ? 'Loading headlines…' : 'No feed items available' }}
+        {{ busy ? 'Loading headlines…' : emptyText }}
       </div>
       <article
         v-for="item in items"
         :key="`${item.sourceId}:${item.id}`"
         class="feed-item"
+        :class="{ read: item.isRead && currentFilter === 'all' }"
       >
         <div class="feed-item-heading">
           <img
@@ -188,6 +252,15 @@ watch(() => props.reloadNonce, (next, previous) => { if (next !== previous) load
             class="feed-item-title"
           >{{ item.title }}</span>
           <span class="feed-item-actions">
+            <button
+              class="btn btn-icon btn-sm"
+              type="button"
+              :title="item.isRead ? 'Mark as unread' : 'Mark as read'"
+              :aria-label="item.isRead ? 'Mark as unread' : 'Mark as read'"
+              :aria-pressed="item.isRead"
+              :disabled="readMutationPending(item)"
+              @click="toggleRead(item)"
+            >{{ item.isRead ? '↶' : '✓' }}</button>
             <button
               v-if="item.audio"
               class="btn btn-icon btn-sm"
@@ -250,10 +323,12 @@ watch(() => props.reloadNonce, (next, previous) => { if (next !== previous) load
 .feed-card { min-height: 0; }
 .feed-card.mobile { height: min(70vh, 520px); min-height: 320px; }
 .feed-count { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+.feed-filter { white-space: nowrap; }
 .feed-meta { display: flex; justify-content: space-between; padding: 6px 12px; color: var(--text-dim); font-size: 11px; border-bottom: 1px solid var(--border); }
 .feed-items { overflow: auto; min-height: 0; flex: 1; }
 .feed-placeholder { min-height: 120px; }
 .feed-item { padding: 9px 12px; border-bottom: 1px solid var(--border); }
+.feed-item.read { opacity: 0.62; }
 .feed-item:last-child { border-bottom: 0; }
 .feed-item-heading { display: flex; align-items: flex-start; gap: 8px; }
 .feed-item-actions { margin-left: auto; display: inline-flex; gap: 4px; flex: none; }

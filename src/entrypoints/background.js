@@ -5,10 +5,12 @@ import { checkHost } from '@/lib/monitor.js'
 import { stepDelay, delayUntilSlot } from '@/lib/schedule.js'
 import { refreshFeedSources } from '@/lib/feed-refresh.js'
 import { createFeedRefreshQueue } from '@/lib/feed-refresh-queue.js'
+import { createFeedReadQueue } from '@/lib/feed-read-queue.js'
 import { nextFeedRefreshAt } from '@/lib/feed-polling.js'
 import {
   getHosts, getSettings, pushResult, ensureSeeded, migrateResultsToPerKey,
-  reconcileOriginPermissions, entryOrigin, entryLabel, getFeedSources, getFeedCaches
+  reconcileOriginPermissions, reconcileFeedReadState, entryOrigin, entryLabel,
+  getFeedSources, getFeedCaches, setFeedItemRead
 } from '@/lib/storage.js'
 
 // Firefox MV2 persistent background page. WXT imports this file in Node at build time to read the
@@ -155,14 +157,24 @@ export default defineBackground({
       return feedRefreshQueue.enqueue(sourceIds, options)
     }
 
+    // Read markers use one record per source. Serialize mutations from every dashboard tab here so
+    // two quick item clicks cannot both read the same old record and overwrite one another.
+    const feedReadQueue = createFeedReadQueue({ setFeedItemRead })
+    function enqueueFeedReadMutation (message) {
+      return feedReadQueue.enqueue(String(message.sourceId || ''), String(message.itemId ?? ''), !!message.read)
+    }
+
     browser.alarms.onAlarm.addListener((alarm) => {
       if (alarm.name === ALARM) runChecks().catch(err => console.error('Glanceboard runChecks failed', err))
       if (alarm.name === FEED_ALARM) enqueueFeedRefresh(null).catch(err => console.error('Glanceboard scheduled feed refresh failed', err))
     })
 
     browser.runtime.onMessage.addListener((message) => {
-      if (message?.type !== 'refresh-feeds') return undefined
-      return enqueueFeedRefresh(Array.isArray(message.sourceIds) ? message.sourceIds : null, { force: !!message.force })
+      if (message?.type === 'refresh-feeds') {
+        return enqueueFeedRefresh(Array.isArray(message.sourceIds) ? message.sourceIds : null, { force: !!message.force })
+      }
+      if (message?.type === 'set-feed-item-read') return enqueueFeedReadMutation(message)
+      return undefined
     })
 
     // Re-register the listener when hosts change; (re)schedule or stop checks when settings change.
@@ -193,6 +205,7 @@ export default defineBackground({
       await ensureSeeded()
       await migrateResultsToPerKey() // one-time upgrade from the legacy monolithic `results` object
       await reconcileOriginPermissions()
+      await reconcileFeedReadState()
       const settings = await getSettings()
       await scheduleChecks(settings)
       await scheduleFeedRefresh(settings)

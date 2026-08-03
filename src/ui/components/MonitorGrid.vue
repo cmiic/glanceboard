@@ -15,6 +15,7 @@ const props = defineProps({
   feedGroups: { type: Array, default: () => [] },
   feedSources: { type: Array, default: () => [] },
   feedCaches: { type: Object, default: () => ({}) },
+  feedReadStates: { type: Object, default: () => ({}) },
   savedIds: { type: Set, default: () => new Set() },
   results: { type: Object, default: () => ({}) },
   settings: { type: Object, default: () => ({}) }
@@ -398,6 +399,7 @@ onBeforeUnmount(() => {
           :group="tile"
           :sources="feedSources.filter(source => source.groupId === tile.id)"
           :caches="feedCaches"
+          :read-states="feedReadStates"
           :mode="mode"
           :arrangeable="arrangeable"
           :reload-nonce="reloadNonces[tile.id] || 0"

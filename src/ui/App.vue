@@ -3,7 +3,7 @@ import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { browser } from '@/lib/browser.js'
 import {
   getHosts, getAllResults, getSettings, getFeedGroups, getFeedSources, getFeedCaches,
-  getReadLater, onChanged, entryLabel
+  getFeedReadStates, getReadLater, onChanged, entryLabel
 } from '@/lib/storage.js'
 import { isCertExpiringSoon, isLoadSlow, isStale } from '@/lib/thresholds.js'
 import MonitorGrid from './components/MonitorGrid.vue'
@@ -22,6 +22,7 @@ const settings = ref({})
 const feedGroups = ref([])
 const feedSources = ref([])
 const feedCaches = ref({})
+const feedReadStates = ref({})
 const readLater = ref([])
 const activePodcast = ref(null)
 const tab = ref('monitor')
@@ -34,13 +35,17 @@ async function refresh () {
   const [h, r, s, groups, sources, saved] = await Promise.all([
     getHosts(), getAllResults(), getSettings(), getFeedGroups(), getFeedSources(), getReadLater()
   ])
-  const caches = await getFeedCaches(sources.map(source => source.id))
+  const [caches, readStates] = await Promise.all([
+    getFeedCaches(sources.map(source => source.id)),
+    getFeedReadStates(sources.map(source => source.id))
+  ])
   hosts.value = h
   results.value = r
   settings.value = s
   feedGroups.value = groups
   feedSources.value = sources
   feedCaches.value = caches
+  feedReadStates.value = readStates
   readLater.value = saved
 }
 
@@ -53,6 +58,7 @@ function applyStorageChanges (changes) {
 
   let nextResults = null
   let nextCaches = null
+  let nextReadStates = null
   for (const [key, change] of Object.entries(changes)) {
     if (key.startsWith('result:')) {
       nextResults ||= { ...results.value }
@@ -64,10 +70,16 @@ function applyStorageChanges (changes) {
       const id = key.slice('feed-cache:'.length)
       if (change.newValue == null) delete nextCaches[id]
       else nextCaches[id] = change.newValue
+    } else if (key.startsWith('feed-read:')) {
+      nextReadStates ||= { ...feedReadStates.value }
+      const id = key.slice('feed-read:'.length)
+      if (change.newValue == null) delete nextReadStates[id]
+      else nextReadStates[id] = change.newValue
     }
   }
   if (nextResults) results.value = nextResults
   if (nextCaches) feedCaches.value = nextCaches
+  if (nextReadStates) feedReadStates.value = nextReadStates
 
   // Only the one-time legacy migration touches the old monolithic results key.
   if (changes.results) getAllResults().then(value => { results.value = value })
@@ -211,6 +223,7 @@ function loadText (host) {
       :feed-groups="feedGroups"
       :feed-sources="feedSources"
       :feed-caches="feedCaches"
+      :feed-read-states="feedReadStates"
       :results="results"
       :settings="settings"
       :saved-ids="savedIds"

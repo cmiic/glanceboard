@@ -29,7 +29,10 @@ Suites:
 - `test/feed-polling.test.js`, `test/feed-refresh.test.js`, and `test/feed-refresh-queue.test.js` —
   adaptive scheduling, backoff, due-source selection, queue coalescing and alarm reconstruction,
   sequential refresh, permission failures, stale fallback, and batched cache writes.
-- `test/backup.test.js` — versioned site/feed/Read Later export plus legacy import compatibility.
+- `test/feed-read.test.js` — read-marker normalization, group filter cycling/counting, filtering before
+  the display cap, and serialized mutations.
+- `test/backup.test.js` — versioned site/feed/Read Later/read-state export plus legacy import
+  compatibility.
 
 Browser-coupled code (the background page, Vue components, iframe behaviour) is verified manually.
 
@@ -55,6 +58,9 @@ Build (`npm run build`) and load `.output/firefox-mv2/manifest.json` via `about:
   close/reopen the dashboard, then verify the saved position resumes when that episode is selected.
 - **Read Later:** save and unsave feed items, remove the original feed, verify saved snapshots remain,
   play a saved podcast, and confirm Clear all before removal.
+- **Read/unread:** verify new and existing items start unread; mark several items read quickly and
+  confirm they disappear from Unread. Cycle through Read, All, and Unread, revert one item to unread,
+  reload the dashboard, and verify the group filter and markers persist. Repeat in two dashboard tabs.
 - **Background feeds:** verify it is globally off after upgrade. Enable it, exercise Auto/fixed/Off per
   feed, inspect last/next times, restart Firefox to reconstruct the alarm, and verify a failed feed
   keeps stale items without blocking successful sources.
@@ -66,9 +72,9 @@ Build (`npm run build`) and load `.output/firefox-mv2/manifest.json` via `about:
   enable notifications → expect a "host unreachable" notification on the next cycle.
 - **Export / Import:** export the data, remove sites/groups/saved items, re-import → one permission
   prompt restores site URLs, typed feed URLs, empty groups, group membership, polling choices, and
-  Read Later. Use a v4 file containing both Read Later items and permission-requiring sites/feeds;
-  Firefox must show the permission prompt without a user-gesture error. Also import an older
-  `{ "hosts": [...] }` file.
+  Read Later, group filters, and read markers. Use a v4 file containing both Read Later items and
+  permission-requiring sites/feeds; Firefox must show the permission prompt without a user-gesture
+  error. Also import an older `{ "hosts": [...] }` file.
 
 ## Adding a test
 
