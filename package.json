@@ -41,7 +41,7 @@
     "markdownlint-cli2": "0.23.2",
     "vite": "8.2.0",
     "vue-eslint-parser": "10.4.1",
-    "wxt": "0.21.2"
+    "wxt": "0.21.3"
   },
   "overrides": {
     "tmp": "0.2.7",
