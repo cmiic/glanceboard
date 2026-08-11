@@ -31,8 +31,10 @@ const grantedOrigins = ref([])
 const preview = computed(() => (input.value.trim() ? normalizeTarget(input.value)?.label : null))
 const wantsFeeds = computed(() => review.value?.direct || choice.value === 'feed' || choice.value === 'both')
 
+// Fire-and-forget: loadGrantedOrigins() degrades to an empty list by itself, so anything that does
+// reject here is a real bug and should surface instead of being swallowed.
 function syncGrantedOrigins () {
-  loadGrantedOrigins().then(origins => { grantedOrigins.value = origins }).catch(() => {})
+  loadGrantedOrigins().then(origins => { grantedOrigins.value = origins })
 }
 
 function rememberPatterns (patterns) {
