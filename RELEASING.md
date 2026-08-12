@@ -231,6 +231,17 @@ This release also serializes read-state changes across dashboard tabs and streng
 feed deletion and backup restoration.
 ```
 
+For 0.6.1:
+
+```text
+Fixes adding a feed to an existing group, which failed with "permissions.request may only be called
+from a user input handler" and added nothing. Adding to a new group was unaffected, so the workaround
+was to create a group and move the feed afterwards.
+
+Adding a feed on a host you had already granted no longer asks for that permission again, and no
+longer fails for the same reason.
+```
+
 ## About the innerHTML validator warning
 
 AMO's validator reports a non-blocking **Warning**: "Unsafe assignment to innerHTML" in

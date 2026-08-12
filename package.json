@@ -1,6 +1,6 @@
 {
   "name": "glanceboard",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "description": "Glanceboard — live website previews and grouped feed headlines for Firefox",
