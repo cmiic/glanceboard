@@ -8,6 +8,9 @@ const requestCalls = []
 const grantedOrigins = []
 let requestResult = true
 let getAllThrows = false
+// When set to an array, getAll() hands its resolver over instead of answering, so a test can decide
+// when — and in which order — the in-flight refreshes come back.
+let deferredGetAll = null
 globalThis.browser = {
   permissions: {
     async request ({ origins }) {
@@ -17,18 +20,22 @@ globalThis.browser = {
     },
     async getAll () {
       if (getAllThrows) throw new Error('nope')
+      if (deferredGetAll) return new Promise(resolve => deferredGetAll.push(origins => resolve({ origins })))
       return { origins: [...grantedOrigins] }
     }
   }
 }
 
-const { loadGrantedOrigins, missingOrigins, requestMissingOrigins } = await import('../src/lib/permissions.js')
+const {
+  createGrantedOriginsCache, loadGrantedOrigins, missingOrigins, requestMissingOrigins
+} = await import('../src/lib/permissions.js')
 
 beforeEach(() => {
   requestCalls.length = 0
   grantedOrigins.length = 0
   requestResult = true
   getAllThrows = false
+  deferredGetAll = null
 })
 
 test('missingOrigins: drops granted patterns, dedupes, and ignores empty entries', () => {
@@ -80,6 +87,46 @@ test('loadGrantedOrigins: returns the granted patterns and swallows failures', a
   assert.deepEqual(await loadGrantedOrigins(), ['https://a.example/*'])
   getAllThrows = true
   assert.deepEqual(await loadGrantedOrigins(), [])
+})
+
+test('granted cache: refresh seeds from the browser, add and remove apply immediately', async () => {
+  const cache = createGrantedOriginsCache()
+  grantedOrigins.push('https://a.example/*')
+  await cache.refresh()
+  assert.deepEqual(cache.list(), ['https://a.example/*'])
+
+  cache.add(['https://b.example/*'])
+  cache.remove(['https://a.example/*'])
+  assert.deepEqual(cache.list(), ['https://b.example/*'])
+
+  cache.add(undefined)
+  cache.remove(undefined)
+  assert.deepEqual(cache.list(), ['https://b.example/*'])
+})
+
+// A revoke, or a permissions.onRemoved payload, is newer than a getAll() that was already on its
+// way. Letting the snapshot win would put the removed origin back and make the next click skip the
+// request it needs.
+test('granted cache: a change during a refresh survives the refresh', async () => {
+  deferredGetAll = []
+  const cache = createGrantedOriginsCache()
+  const pending = cache.refresh()
+  cache.remove(['https://a.example/*'])
+  deferredGetAll[0](['https://a.example/*'])
+  await pending
+  assert.deepEqual(cache.list(), [])
+})
+
+test('granted cache: an older refresh cannot overwrite a newer one', async () => {
+  deferredGetAll = []
+  const cache = createGrantedOriginsCache()
+  const first = cache.refresh()
+  const second = cache.refresh()
+  deferredGetAll[1](['https://new.example/*'])
+  await second
+  deferredGetAll[0](['https://stale.example/*'])
+  await first
+  assert.deepEqual(cache.list(), ['https://new.example/*'])
 })
 
 // The regression this guards is an ordering one inside a Vue click handler, and the project has no

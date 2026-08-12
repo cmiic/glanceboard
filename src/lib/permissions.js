@@ -39,3 +39,34 @@ export async function loadGrantedOrigins () {
     return []
   }
 }
+
+// The synchronously readable view of the granted origins that `requestMissingOrigins` needs.
+//
+// Every known change — a resolved request, a revoke, a permissions.onAdded/onRemoved payload — is
+// applied through add()/remove() without awaiting anything, so no click can land in the window
+// between a permission changing and a getAll() round-trip reporting it. refresh() only seeds and
+// repairs the cache, and is deliberately the weaker source: its snapshot is discarded whenever
+// anything happened while it was in flight, which also keeps overlapping refreshes from resolving
+// out of order and reinstating an older list.
+export function createGrantedOriginsCache () {
+  let origins = new Set()
+  let sequence = 0
+
+  return {
+    list: () => [...origins],
+    add (patterns) {
+      for (const pattern of patterns || []) origins.add(pattern)
+      sequence++
+    },
+    remove (patterns) {
+      for (const pattern of patterns || []) origins.delete(pattern)
+      sequence++
+    },
+    async refresh () {
+      const ticket = ++sequence
+      const loaded = await loadGrantedOrigins()
+      if (ticket !== sequence) return
+      origins = new Set(loaded)
+    }
+  }
+}

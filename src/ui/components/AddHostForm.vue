@@ -9,7 +9,7 @@ import {
   defaultCandidateIds, discoveryPermissionPatterns, inspectTarget
 } from '@/lib/feed-discovery.js'
 import { getFeedAdapter } from '@/lib/feed-adapters.js'
-import { loadGrantedOrigins, requestMissingOrigins } from '@/lib/permissions.js'
+import { createGrantedOriginsCache, requestMissingOrigins } from '@/lib/permissions.js'
 
 const input = ref('')
 const error = ref('')
@@ -24,18 +24,14 @@ const groupChoice = ref('__new__')
 const groupName = ref('')
 const temporaryUrls = new Set()
 // Firefox rejects permissions.request() outside a user input handler, so a click handler cannot
-// await permissions.contains() to find out whether it still has to ask. This snapshot answers that
-// synchronously instead; it is seeded on mount and kept current through the permission events.
-const grantedOrigins = ref([])
+// await permissions.contains() to find out whether it still has to ask. This cache answers that
+// synchronously instead. Nothing in the template reads it, so it is intentionally not reactive.
+const grantedOrigins = createGrantedOriginsCache()
+const onPermissionsAdded = permissions => grantedOrigins.add(permissions?.origins)
+const onPermissionsRemoved = permissions => grantedOrigins.remove(permissions?.origins)
 
 const preview = computed(() => (input.value.trim() ? normalizeTarget(input.value)?.label : null))
 const wantsFeeds = computed(() => review.value?.direct || choice.value === 'feed' || choice.value === 'both')
-
-// Fire-and-forget: loadGrantedOrigins() degrades to an empty list by itself, so anything that does
-// reject here is a real bug and should surface instead of being swallowed.
-function syncGrantedOrigins () {
-  loadGrantedOrigins().then(origins => { grantedOrigins.value = origins })
-}
 
 function rememberPatterns (patterns) {
   for (const pattern of patterns) temporaryUrls.add(pattern.replace(/\/\*$/, ''))
@@ -44,8 +40,14 @@ function rememberPatterns (patterns) {
 async function cleanupTemporary () {
   const urls = [...temporaryUrls]
   temporaryUrls.clear()
+  if (!urls.length) return
+  // Drop the origins before revoking rather than after: cancel() re-enables the form while this is
+  // still running, and a click that wrongly believes a permission is held skips its gesture-bound
+  // request and then fails to fetch. Assuming too little only costs a request that resolves without
+  // a prompt, and the refresh below restores anything revokePermissionIfUnused decided to keep.
+  grantedOrigins.remove(urls.map(url => normalizeTarget(url)?.originPattern).filter(Boolean))
   for (const url of urls) await revokePermissionIfUnused(url)
-  if (urls.length) syncGrantedOrigins()
+  await grantedOrigins.refresh()
 }
 
 function resetReview () {
@@ -112,10 +114,10 @@ async function submit () {
   try {
     // This request is deliberately the first awaited operation: Firefox requires it to remain in
     // the submit gesture. A known discovery adapter may add its exact API origin to the same prompt.
-    const { granted, origins } = await requestMissingOrigins(patterns, grantedOrigins.value)
+    const { granted, origins } = await requestMissingOrigins(patterns, grantedOrigins.list())
     if (!granted) { error.value = 'Permission is needed to inspect this site'; return }
     rememberPatterns(origins)
-    syncGrantedOrigins()
+    grantedOrigins.add(origins)
     await inspect(n.url, n.url)
   } catch (e) {
     error.value = e?.message || String(e)
@@ -132,10 +134,10 @@ async function continueRedirect () {
   const patterns = [...new Set([n.originPattern, ...discoveryPermissionPatterns(n.url)])]
   try {
     // First awaited operation again — the "Grant & continue" click is the gesture Firefox needs.
-    const { granted, origins } = await requestMissingOrigins(patterns, grantedOrigins.value)
+    const { granted, origins } = await requestMissingOrigins(patterns, grantedOrigins.list())
     if (!granted) { error.value = 'Permission is needed to inspect the redirected site'; return }
     rememberPatterns(origins)
-    syncGrantedOrigins()
+    grantedOrigins.add(origins)
     await inspect(n.url, redirect.value.discoveredFrom)
   } catch (e) {
     error.value = e?.message || String(e)
@@ -178,10 +180,10 @@ async function confirmSelection () {
     // The confirmation button supplies the user gesture for cross-origin feed permissions, so this
     // stays the first awaited operation: any await before it — the feed-group re-check below used
     // to be one — makes Firefox reject the request, whether or not anything is still missing.
-    const { granted, origins } = await requestMissingOrigins(patterns, grantedOrigins.value)
+    const { granted, origins } = await requestMissingOrigins(patterns, grantedOrigins.list())
     if (!granted) { error.value = 'Permission is needed to read the selected feed(s)'; return }
     rememberPatterns(origins)
-    syncGrantedOrigins()
+    grantedOrigins.add(origins)
 
     if (wantsFeeds.value && groupChoice.value !== '__new__') {
       const currentGroups = await getFeedGroups()
@@ -240,14 +242,16 @@ async function cancel () {
 }
 
 onMounted(() => {
-  syncGrantedOrigins()
-  browser.permissions?.onAdded?.addListener(syncGrantedOrigins)
-  browser.permissions?.onRemoved?.addListener(syncGrantedOrigins)
+  // The listeners go up before the seeding refresh, so a grant made elsewhere in between is applied
+  // on top of that snapshot instead of being overwritten by it.
+  browser.permissions?.onAdded?.addListener(onPermissionsAdded)
+  browser.permissions?.onRemoved?.addListener(onPermissionsRemoved)
+  grantedOrigins.refresh()
 })
 
 onBeforeUnmount(() => {
-  browser.permissions?.onAdded?.removeListener(syncGrantedOrigins)
-  browser.permissions?.onRemoved?.removeListener(syncGrantedOrigins)
+  browser.permissions?.onAdded?.removeListener(onPermissionsAdded)
+  browser.permissions?.onRemoved?.removeListener(onPermissionsRemoved)
   cleanupTemporary().catch(() => {})
 })
 </script>
