@@ -202,54 +202,54 @@ async function probeFeed (url, { fetchImpl, Parser, timeoutMs = 5000 }) {
   return (await inspectFeedResponse(response, url, Parser)).result
 }
 
-export async function inspectTarget (pageUrl, {
-  fetchImpl = globalThis.fetch,
-  Parser = globalThis.DOMParser,
-  canFetch = async () => true,
-  includeOrf = true,
-  webRequest = globalThis.browser?.webRequest
-} = {}) {
-  const { response, observedRedirect } = await fetchForInspection(pageUrl, { fetchImpl, webRequest })
-  const headerRedirect = response.status >= 300 && response.status < 400
-    ? normalizeHttpUrl(response.headers.get('location'), pageUrl)
-    : null
-  const redirectUrl = observedRedirect || headerRedirect
-  if (redirectUrl) return { kind: 'redirect', url: redirectUrl }
+const DECLARED_FEED_TYPE = /application\/(?:rss|rdf|atom)\+xml|application\/feed\+json/i
+
+// The webRequest-observed redirect wins; otherwise a 3xx response's Location header, if usable.
+function inspectionRedirect (response, pageUrl, observedRedirect) {
+  if (observedRedirect) return observedRedirect
+  const isRedirect = response.status >= 300 && response.status < 400
+  return isRedirect ? normalizeHttpUrl(response.headers.get('location'), pageUrl) : null
+}
+
+function assertInspectable (response) {
   if (response.type === 'opaqueredirect' || response.status === 0) {
     throw new Error('The redirect target could not be determined')
   }
   if (!response.ok) throw new Error(`Site request failed (${response.status})`)
+}
 
-  const finalPageUrl = normalizeHttpUrl(response.url || pageUrl)
-  if (!finalPageUrl) throw new Error('Site redirected to an unsupported URL')
-  const contentType = response.headers.get('content-type') || ''
-  const body = await readBoundedResponseText(response)
-  const matching = matchingFeedAdapters(body, contentType)
-  let directError
+// The page may itself be a feed. A parse failure is handed back rather than thrown, because it only
+// matters when the response claims to be a feed — which the caller decides.
+function directFeed (body, contentType, pageUrl, response, Parser, matching) {
   try {
-    const direct = parseDetectedFeed(body, contentType, finalPageUrl, response, Parser, matching)
-    if (direct) return {
-      kind: 'feed', pageUrl: finalPageUrl,
-      candidates: [{ type: direct.type, url: direct.url, title: direct.cache.channel.title, validated: direct.cache }]
+    const direct = parseDetectedFeed(body, contentType, pageUrl, response, Parser, matching)
+    if (!direct) return { result: null }
+    return {
+      result: {
+        kind: 'feed', pageUrl,
+        candidates: [{ type: direct.type, url: direct.url, title: direct.cache.channel.title, validated: direct.cache }]
+      }
     }
   } catch (error) {
-    directError = error
+    return { result: null, error }
   }
-  // A response explicitly declaring a feed media type must not silently become a website tile when
-  // malformed. Generic XML/JSON is treated as a feed only after a successful content validation.
-  const looksLikeFeed = matching.length > 0
-  if (/application\/(?:rss|rdf|atom)\+xml|application\/feed\+json/i.test(contentType) || looksLikeFeed) throw directError
+}
 
-  let found = [
-    ...discoverFromLinkHeader(response.headers.get('link'), finalPageUrl),
-    ...(contentType.includes('html') ? discoverFromHtml(body, finalPageUrl, Parser) : [])
+async function advertisedCandidates (response, body, contentType, pageUrl, { fetchImpl, Parser, includeOrf }) {
+  const found = [
+    ...discoverFromLinkHeader(response.headers.get('link'), pageUrl),
+    ...(contentType.includes('html') ? discoverFromHtml(body, pageUrl, Parser) : [])
   ]
   for (const strategy of discoveryStrategies) {
     if (!includeOrf && strategy.id === 'orf-podcast') continue
-    found.push(...await strategy.discover(finalPageUrl, { fetchImpl, Parser }).catch(() => []))
+    found.push(...await strategy.discover(pageUrl, { fetchImpl, Parser }).catch(() => []))
   }
-  found = dedupeCandidates(found)
+  return dedupeCandidates(found)
+}
 
+// A candidate the extension may not fetch yet (another origin, no grant) stays selectable as it is;
+// it is validated once the user grants its origin.
+async function validateCandidates (found, { canFetch, fetchImpl, Parser }) {
   const validated = []
   for (const item of found) {
     if (!(await canFetch(item.url))) { validated.push(item); continue }
@@ -259,20 +259,52 @@ export async function inspectTarget (pageUrl, {
       validated.push({ ...item, url: result.url, title: result.cache.channel.title || item.title, validated: result.cache })
     } catch { /* An advertised URL is only offered when it validates as its declared feed type. */ }
   }
-  if (!validated.length) {
-    const base = new URL(finalPageUrl).origin
-    for (const path of COMMON_FEED_PATHS) {
-      const url = base + path
-      if (!(await canFetch(url))) continue
-      try {
-        const result = await probeFeed(url, { fetchImpl, Parser })
-        if (!result) continue
-        validated.push({ type: result.type, url: result.url, title: result.cache.channel.title, validated: result.cache })
-        break
-      } catch { /* Try the next conventional path. */ }
-    }
+  return validated
+}
+
+// Nothing advertised validated: try the conventional feed paths on the page's origin, first hit wins.
+async function probeCommonPaths (pageUrl, { canFetch, fetchImpl, Parser }) {
+  const base = new URL(pageUrl).origin
+  for (const path of COMMON_FEED_PATHS) {
+    const url = base + path
+    if (!(await canFetch(url))) continue
+    try {
+      const result = await probeFeed(url, { fetchImpl, Parser })
+      if (result) return [{ type: result.type, url: result.url, title: result.cache.channel.title, validated: result.cache }]
+    } catch { /* Try the next conventional path. */ }
   }
-  return { kind: 'page', pageUrl: finalPageUrl, candidates: dedupeCandidates(validated) }
+  return []
+}
+
+export async function inspectTarget (pageUrl, {
+  fetchImpl = globalThis.fetch,
+  Parser = globalThis.DOMParser,
+  canFetch = async () => true,
+  includeOrf = true,
+  webRequest = globalThis.browser?.webRequest
+} = {}) {
+  const { response, observedRedirect } = await fetchForInspection(pageUrl, { fetchImpl, webRequest })
+  const redirectUrl = inspectionRedirect(response, pageUrl, observedRedirect)
+  if (redirectUrl) return { kind: 'redirect', url: redirectUrl }
+  assertInspectable(response)
+
+  const finalPageUrl = normalizeHttpUrl(response.url || pageUrl)
+  if (!finalPageUrl) throw new Error('Site redirected to an unsupported URL')
+  const contentType = response.headers.get('content-type') || ''
+  const body = await readBoundedResponseText(response)
+  const matching = matchingFeedAdapters(body, contentType)
+  const direct = directFeed(body, contentType, finalPageUrl, response, Parser, matching)
+  if (direct.result) return direct.result
+  // A response explicitly declaring a feed media type must not silently become a website tile when
+  // malformed. Generic XML/JSON is treated as a feed only after a successful content validation.
+  const looksLikeFeed = matching.length > 0
+  if (DECLARED_FEED_TYPE.test(contentType) || looksLikeFeed) throw direct.error
+
+  const options = { canFetch, fetchImpl, Parser }
+  const found = await advertisedCandidates(response, body, contentType, finalPageUrl, { fetchImpl, Parser, includeOrf })
+  const validated = await validateCandidates(found, options)
+  const candidates = validated.length ? validated : await probeCommonPaths(finalPageUrl, options)
+  return { kind: 'page', pageUrl: finalPageUrl, candidates: dedupeCandidates(candidates) }
 }
 
 export function defaultCandidateIds (candidates) {
