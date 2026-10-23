@@ -97,6 +97,7 @@ npm run dev            # build + launch in Firefox (desktop) via WXT
 npm run build          # build into .output/firefox-mv2/
 npm run zip            # package a distributable .zip
 npm test               # node:test unit suites (src/lib)
+npm run test:coverage  # the same suites, plus an LCOV report in coverage.lcov
 npm run lint           # eslint + markdownlint
 ```
 

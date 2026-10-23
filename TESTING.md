@@ -7,7 +7,11 @@ Pure logic in `src/lib/` is covered by Node's built-in test runner. `linkedom` s
 
 ```bash
 npm test     # runs: node --test  (over test/*.test.js)
+npm run test:coverage  # the same, plus src/ line/branch coverage as LCOV in coverage.lcov
 ```
+
+The SonarQube Cloud workflow runs `test:coverage` before its scan; the scanner reads `coverage.lcov`
+(see `sonar-project.properties`).
 
 Suites:
 

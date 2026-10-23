@@ -24,7 +24,8 @@
     "lint": "npm run lint:js && npm run lint:md",
     "lint:js": "eslint .",
     "lint:md": "markdownlint-cli2",
-    "test": "node --test"
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**' --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage.lcov"
   },
   "dependencies": {
     "chart.js": "4.5.1",
