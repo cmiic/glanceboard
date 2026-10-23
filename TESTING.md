@@ -30,6 +30,8 @@ Suites:
 - `test/feed-discovery.test.js` — multi-format HTML/header/common-path discovery, redirects, direct
   feeds, and the ORF adapter.
 - `test/feed-adapters.test.js` — typed feed and discovery extension-point registries.
+- `test/feed-selection.test.js` — the add dialog's review step: selection checks, origin patterns,
+  redirected feeds, and the site/feed/group request handed to storage.
 - `test/feed-polling.test.js`, `test/feed-refresh.test.js`, and `test/feed-refresh-queue.test.js` —
   adaptive scheduling, backoff, due-source selection, queue coalescing and alarm reconstruction,
   sequential refresh, permission failures, stale fallback, and batched cache writes.
