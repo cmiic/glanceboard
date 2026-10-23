@@ -175,13 +175,24 @@ export function hasPrologDoctype (xml) {
   return /^<!DOCTYPE(?:\s|>)/i.test(remaining)
 }
 
-export function parseRss (xml, { url, Parser = globalThis.DOMParser } = {}) {
-  if (typeof xml !== 'string' || !xml.trim()) throw new Error('Empty RSS response')
-  if (hasPrologDoctype(xml)) throw new Error('RSS documents with a DOCTYPE are not supported')
-  if (typeof Parser !== 'function') throw new Error('DOMParser is unavailable')
+// Parse a feed's item nodes in document order, keeping the first item of each id, up to
+// MAX_FEED_ITEMS. parseItem returns null for an entry that cannot be an item.
+export function collectFeedItems (nodes, parseItem) {
+  const seen = new Set()
+  const items = []
+  for (const node of nodes) {
+    const item = parseItem(node)
+    if (!item || seen.has(item.id)) continue
+    seen.add(item.id)
+    items.push(item)
+    if (items.length >= MAX_FEED_ITEMS) break
+  }
+  return items
+}
 
-  const document = new Parser().parseFromString(xml, 'application/xml')
-  if (parserFailed(document)) throw new Error('Malformed RSS XML')
+// RSS 2.0 is <rss version="2.x">; RSS 1.0 is <rdf:RDF> in the RDF namespace, with its items beside
+// the channel rather than inside it.
+function supportedRssRoot (document) {
   const root = document.documentElement
   const rootName = String(root.localName || root.nodeName).toLowerCase().split(':').pop()
   const isRss2 = rootName === 'rss'
@@ -193,35 +204,41 @@ export function parseRss (xml, { url, Parser = globalThis.DOMParser } = {}) {
   if (isRss2 && !/^2(?:\.|$)/.test(String(root.getAttribute?.('version') || ''))) {
     throw new Error('Only RSS 1.0 and 2.0 feeds are supported')
   }
+  return { root, isRss1 }
+}
+
+function parseRssItem (itemNode, url, Parser) {
+  const title = childText(itemNode, 'title') || 'Untitled'
+  const guidNode = firstChild(itemNode, 'guid')
+  const rdfAbout = itemNode.getAttribute?.('rdf:about') || itemNode.getAttributeNS?.(RDF_NAMESPACE, 'about') || ''
+  const guid = guidNode?.textContent?.trim() || rdfAbout
+  let link = normalizeHttpUrl(childLinkText(itemNode), url)
+  if (!link && guid && guidNode?.getAttribute?.('isPermaLink') !== 'false') link = normalizeHttpUrl(guid, url)
+  const publishedAt = safeDate(childText(itemNode, 'pubDate') || childText(itemNode, 'date'))
+  const descriptionMarkup = childText(itemNode, 'description') || childText(itemNode, 'encoded')
+  const description = Array.from(descriptionText(descriptionMarkup, Parser))
+    .slice(0, MAX_FEED_DESCRIPTION_CHARS).join('')
+  const imageUrl = itemImage(itemNode, descriptionMarkup, url, Parser)
+  const audio = itemAudio(itemNode, url)
+  const id = guid || link || `${publishedAt ?? ''}:${title}`
+  return { id, title, url: link, publishedAt, description, imageUrl, audio }
+}
+
+export function parseRss (xml, { url, Parser = globalThis.DOMParser } = {}) {
+  if (typeof xml !== 'string' || !xml.trim()) throw new Error('Empty RSS response')
+  if (hasPrologDoctype(xml)) throw new Error('RSS documents with a DOCTYPE are not supported')
+  if (typeof Parser !== 'function') throw new Error('DOMParser is unavailable')
+
+  const document = new Parser().parseFromString(xml, 'application/xml')
+  if (parserFailed(document)) throw new Error('Malformed RSS XML')
+  const { root, isRss1 } = supportedRssRoot(document)
   const channelNode = firstChild(root, 'channel')
   if (!channelNode) throw new Error('RSS channel is missing')
 
   const channelTitle = childText(channelNode, 'title') || new URL(url).hostname
   const channelLink = normalizeHttpUrl(childLinkText(channelNode), url)
-  const seen = new Set()
-  const items = []
-
   const itemNodes = isRss1 ? directChildren(root, 'item') : directChildren(channelNode, 'item')
-  for (const itemNode of itemNodes) {
-    const title = childText(itemNode, 'title') || 'Untitled'
-    const guidNode = firstChild(itemNode, 'guid')
-    const rdfAbout = itemNode.getAttribute?.('rdf:about') || itemNode.getAttributeNS?.(RDF_NAMESPACE, 'about') || ''
-    const guid = guidNode?.textContent?.trim() || rdfAbout
-    let link = normalizeHttpUrl(childLinkText(itemNode), url)
-    if (!link && guid && guidNode?.getAttribute?.('isPermaLink') !== 'false') link = normalizeHttpUrl(guid, url)
-    const publishedAt = safeDate(childText(itemNode, 'pubDate') || childText(itemNode, 'date'))
-    const descriptionMarkup = childText(itemNode, 'description') || childText(itemNode, 'encoded')
-    const description = Array.from(descriptionText(descriptionMarkup, Parser))
-      .slice(0, MAX_FEED_DESCRIPTION_CHARS).join('')
-    const imageUrl = itemImage(itemNode, descriptionMarkup, url, Parser)
-    const audio = itemAudio(itemNode, url)
-    const id = guid || link || `${publishedAt ?? ''}:${title}`
-    if (seen.has(id)) continue
-    seen.add(id)
-    items.push({ id, title, url: link, publishedAt, description, imageUrl, audio })
-    if (items.length >= MAX_FEED_ITEMS) break
-  }
-
+  const items = collectFeedItems(itemNodes, itemNode => parseRssItem(itemNode, url, Parser))
   return { channel: { title: channelTitle, url: channelLink }, items }
 }
 
