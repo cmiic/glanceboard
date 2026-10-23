@@ -26,7 +26,7 @@ Suites:
 - `test/rss.test.js` — RSS 1.0/2.0 parsing, safe description/image normalization, URL safety, cache
   validators, response bounds, podcast enclosures, truncation, and merged ordering.
 - `test/atom.test.js` and `test/json-feed.test.js` — Atom and JSON Feed parsing, safe content
-  normalization, relative URLs, validators, and audio attachments.
+  normalization, relative URLs, validators, audio attachments, item identity, and the item cap.
 - `test/feed-discovery.test.js` — multi-format HTML/header/common-path discovery, redirects, direct
   feeds, and the ORF adapter.
 - `test/feed-adapters.test.js` — typed feed and discovery extension-point registries.
