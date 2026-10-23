@@ -121,6 +121,8 @@ a { color: var(--primary); }
 
 .popup { width: 340px; padding: 12px; }
 .popup .host-row { margin-bottom: 6px; padding: 6px 8px; cursor: pointer; }
+/* The popup's rows are buttons, so keyboard users can open them; keep them looking like rows. */
+button.host-row { width: 100%; font: inherit; color: inherit; text-align: left; }
 .popup-load { font-size: 12px; color: var(--text-dim); }
 
 @media (max-width: 620px) {
