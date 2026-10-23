@@ -20,8 +20,8 @@ Suites:
 - `test/headers.test.js` — `stripFramingHeaders()` **(security-critical)**: removes `X-Frame-Options`,
   strips only the CSP `frame-ancestors` directive, and leaves everything else intact.
 - `test/storage.test.js` — host CRUD + dedupe, per-host metric flags, the rolling results buffer
-  (newest-first, capped, sticky cert), and settings defaults — against an in-memory
-  `browser.storage.local` mock.
+  (newest-first, capped, sticky cert), settings defaults, and folding per-key storage changes into
+  the dashboard's maps — against an in-memory `browser.storage.local` mock.
 - `test/monitor.test.js` — `checkHost()` ok / error / timeout result shape (with a stubbed `fetch`).
 - `test/rss.test.js` — RSS 1.0/2.0 parsing, safe description/image normalization, URL safety, cache
   validators, response bounds, podcast enclosures, truncation, and merged ordering.
