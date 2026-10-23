@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
+import { ref, computed, onBeforeUnmount, onMounted, useId } from 'vue'
 import { browser } from '@/lib/browser.js'
 import { normalizeTarget } from '@/lib/url.js'
 import {
@@ -25,6 +25,9 @@ const choice = ref('site')
 const selectedUrls = ref([])
 const groupChoice = ref(NEW_GROUP)
 const groupName = ref('')
+// The Sites and Feeds tabs each mount this form and stay in the DOM (v-show), so the label/select
+// pair needs an id per instance.
+const feedGroupId = useId()
 const temporaryUrls = new Set()
 // Firefox rejects permissions.request() outside a user input handler, so a click handler cannot
 // await permissions.contains() to find out whether it still has to ask. This cache answers that
@@ -354,10 +357,10 @@ onBeforeUnmount(() => {
         </label>
         <label
           class="setting-label"
-          for="add-feed-group"
+          :for="feedGroupId"
         >Feed group</label>
         <select
-          id="add-feed-group"
+          :id="feedGroupId"
           v-model="groupChoice"
           class="input"
         >
