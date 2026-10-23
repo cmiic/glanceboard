@@ -75,3 +75,12 @@ test('siteAndFeedsRequest: feeds go to the chosen group, or to a new one by name
     review, choice: 'site', wantsFeeds: false, groupChoice: 'feed-group:1', groupName: 'News', feeds: []
   }), { siteInput: 'https://a.test/', feeds: [], groupId: null, groupName: '' })
 })
+
+test('siteAndFeedsRequest: switching to Website while feeds validate adds the site alone', () => {
+  // The radios stay enabled during validation, so wantsFeeds can turn false after feeds were resolved.
+  const review = { direct: false, pageUrl: 'https://a.test/' }
+  assert.deepEqual(siteAndFeedsRequest({
+    review, choice: 'site', wantsFeeds: false, groupChoice: NEW_GROUP, groupName: 'News',
+    feeds: [{ url: 'https://a.test/rss' }]
+  }), { siteInput: 'https://a.test/', feeds: [], groupId: null, groupName: '' })
+})

@@ -41,13 +41,15 @@ export function feedSourceInput (item, result, discoveredFrom) {
 }
 
 // The argument for addSiteAndFeedSources(): the page as a site when the user chose it, and the feeds
-// into either the chosen existing group or a new one.
+// into either the chosen existing group or a new one. The choice is read when the request is built,
+// after feed validation: the user can still switch to Website while it runs, and then gets the site
+// alone rather than feeds without a group.
 export function siteAndFeedsRequest ({ review, choice, wantsFeeds, groupChoice, groupName, feeds }) {
   const wantsSite = !review.direct && (choice === 'site' || choice === 'both')
   const newGroup = groupChoice === NEW_GROUP
   return {
     siteInput: wantsSite ? review.pageUrl : null,
-    feeds,
+    feeds: wantsFeeds ? feeds : [],
     groupId: wantsFeeds && !newGroup ? groupChoice : null,
     groupName: wantsFeeds && newGroup ? groupName : ''
   }
