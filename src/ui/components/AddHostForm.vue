@@ -271,6 +271,7 @@ onBeforeUnmount(() => {
       class="input"
       type="text"
       placeholder="add site, page, or feed URL"
+      aria-label="Site, page, or feed URL"
       style="flex: 1; min-width: 200px"
       :disabled="busy || !!review || !!redirect || !!failedTarget"
     >
@@ -351,8 +352,12 @@ onBeforeUnmount(() => {
             <span class="popup-load url-wrap">{{ candidate.url }}</span>
           </span>
         </label>
-        <label class="setting-label">Feed group</label>
+        <label
+          class="setting-label"
+          for="add-feed-group"
+        >Feed group</label>
         <select
+          id="add-feed-group"
           v-model="groupChoice"
           class="input"
         >
@@ -374,6 +379,7 @@ onBeforeUnmount(() => {
           type="text"
           maxlength="80"
           placeholder="Group name"
+          aria-label="New group name"
         >
       </div>
 

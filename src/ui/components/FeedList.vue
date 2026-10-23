@@ -129,6 +129,7 @@ async function grant (source) {
         type="text"
         maxlength="80"
         placeholder="New group name"
+        aria-label="New group name"
       >
       <button
         class="btn"

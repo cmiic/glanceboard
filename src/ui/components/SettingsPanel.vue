@@ -169,7 +169,7 @@ async function doImport () {
 <template>
   <div class="settings">
     <div class="card setting">
-      <label class="setting-label">Open / home page</label>
+      <span class="setting-label">Open / home page</span>
       <p
         class="popup-load"
         style="margin: 0"
@@ -183,6 +183,7 @@ async function doImport () {
           class="input"
           style="flex: 1; min-width: 200px"
           :value="dashboardUrl"
+          aria-label="Glanceboard dashboard address"
           readonly
           @focus="$event.target.select()"
         >
@@ -199,8 +200,12 @@ async function doImport () {
       </p>
     </div>
     <div class="card setting">
-      <label class="setting-label">Background checks</label>
+      <label
+        class="setting-label"
+        for="settings-check-interval"
+      >Background checks</label>
       <select
+        id="settings-check-interval"
         v-model="intervalMinutes"
         class="input"
         @change="saveInterval"
@@ -239,8 +244,12 @@ async function doImport () {
     </div>
 
     <div class="card setting">
-      <label class="setting-label">Preview refresh</label>
+      <label
+        class="setting-label"
+        for="settings-preview-interval"
+      >Preview refresh</label>
       <select
+        id="settings-preview-interval"
         v-model="previewIntervalMinutes"
         class="input"
         @change="savePreviewInterval"
@@ -298,7 +307,7 @@ async function doImport () {
     </div>
 
     <div class="card setting">
-      <label class="setting-label">Metrics</label>
+      <span class="setting-label">Metrics</span>
       <p
         class="popup-load"
         style="margin: 0"
@@ -386,8 +395,12 @@ async function doImport () {
     </div>
 
     <div class="card setting">
-      <label class="setting-label">Card size (min width): {{ cardMinWidth }}px</label>
+      <label
+        class="setting-label"
+        for="settings-card-width"
+      >Card size (min width): {{ cardMinWidth }}px</label>
       <input
+        id="settings-card-width"
         v-model="cardMinWidth"
         type="range"
         min="240"
@@ -415,8 +428,12 @@ async function doImport () {
     </div>
 
     <div class="card setting">
-      <label class="setting-label">Layout</label>
+      <label
+        class="setting-label"
+        for="settings-layout"
+      >Layout</label>
       <select
+        id="settings-layout"
         v-model="mode"
         class="input"
         @change="saveMode"
@@ -434,7 +451,7 @@ async function doImport () {
     </div>
 
     <div class="card setting">
-      <label class="setting-label">Sites and feeds</label>
+      <span class="setting-label">Sites and feeds</span>
       <div class="field">
         <button
           class="btn"
