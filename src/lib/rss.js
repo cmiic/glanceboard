@@ -126,8 +126,8 @@ export function normalizeAudio (value, base) {
   if (!url || (!mimeType?.startsWith('audio/') && !AUDIO_EXTENSIONS.test(url))) return null
   const hasByteLength = value?.byteLength != null && value.byteLength !== ''
   const hasDuration = value?.durationSeconds != null && value.durationSeconds !== ''
-  const byteLength = hasByteLength ? Number(value.byteLength) : NaN
-  const durationSeconds = hasDuration ? Number(value.durationSeconds) : NaN
+  const byteLength = hasByteLength ? Number(value.byteLength) : Number.NaN
+  const durationSeconds = hasDuration ? Number(value.durationSeconds) : Number.NaN
   return {
     url,
     mimeType,
