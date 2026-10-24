@@ -49,3 +49,32 @@ test('fetchJsonFeed enforces conditional 304 behavior', async () => {
   assert.equal(result.notModified, true)
   assert.equal(result.cache.channel.title, 'kept')
 })
+
+test('parseJsonFeed: item identity, link fallbacks, the first audio attachment and the item cap', () => {
+  const url = 'https://json.test/feed.json'
+  const parsed = parseJsonFeed(JSON.stringify({
+    version: 'https://jsonfeed.org/version/1.1', items: [
+      null,
+      'not an item',
+      { id: 'a', url: '/a', title: '  First  ', summary: 'Plain   summary' },
+      { id: 'a', url: '/a-again', title: 'Duplicate id' },
+      { external_url: 'https://elsewhere.test/b', content_text: 'No id, external link' },
+      { title: 'Neither id nor link' },
+      { id: 'c', attachments: [{ url: '/c.txt', mime_type: 'text/plain' }, { url: '/c.mp3' }, { url: '/c2.mp3' }] }
+    ]
+  }), { url, Parser: DOMParser })
+  assert.equal(parsed.channel.title, 'json.test')
+  assert.deepEqual(parsed.items.map(item => [item.id, item.url, item.title]), [
+    ['a', 'https://json.test/a', 'First'],
+    ['https://elsewhere.test/b', 'https://elsewhere.test/b', 'Untitled'],
+    ['c', null, 'Untitled']
+  ])
+  assert.equal(parsed.items[0].description, 'Plain summary')
+  assert.equal(parsed.items[2].audio.url, 'https://json.test/c.mp3')
+
+  const many = parseJsonFeed(JSON.stringify({
+    version: 'https://jsonfeed.org/version/1', items: Array.from({ length: 60 }, (_, i) => ({ id: `item-${i}` }))
+  }), { url, Parser: DOMParser })
+  assert.equal(many.items.length, 50)
+  assert.equal(many.items.at(-1).id, 'item-49')
+})

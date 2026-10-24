@@ -9,6 +9,9 @@ import {
   defaultCandidateIds, discoveryPermissionPatterns, inspectTarget
 } from '@/lib/feed-discovery.js'
 import { getFeedAdapter } from '@/lib/feed-adapters.js'
+import {
+  NEW_GROUP, feedSourceInput, retargetCandidate, selectedOriginPatterns, selectionError, siteAndFeedsRequest
+} from '@/lib/feed-selection.js'
 import { createGrantedOriginsCache, requestMissingOrigins } from '@/lib/permissions.js'
 
 const input = ref('')
@@ -20,7 +23,7 @@ const failedTarget = ref(null)
 const groups = ref([])
 const choice = ref('site')
 const selectedUrls = ref([])
-const groupChoice = ref('__new__')
+const groupChoice = ref(NEW_GROUP)
 const groupName = ref('')
 const temporaryUrls = new Set()
 // Firefox rejects permissions.request() outside a user input handler, so a click handler cannot
@@ -56,7 +59,7 @@ function resetReview () {
   failedTarget.value = null
   selectedUrls.value = []
   choice.value = 'site'
-  groupChoice.value = '__new__'
+  groupChoice.value = NEW_GROUP
   groupName.value = ''
 }
 
@@ -160,20 +163,53 @@ async function addWebsiteAnyway () {
   }
 }
 
+// The chosen existing group may have been deleted in another tab while the review was open. If so,
+// switch the review to a new group and tell the user instead of adding into a missing group.
+async function selectedGroupStillExists (selected) {
+  if (!wantsFeeds.value || groupChoice.value === NEW_GROUP) return true
+  const currentGroups = await getFeedGroups()
+  groups.value = currentGroups
+  if (currentGroups.some(group => group.id === groupChoice.value)) return true
+  groupChoice.value = NEW_GROUP
+  groupName.value = suggestGroupName(selected[0]?.title || 'Feed group', currentGroups)
+  error.value = 'The selected feed group was deleted. Choose another group or create a new one.'
+  return false
+}
+
+// Validate each selected feed (discovery may already have) and check that its final URL is on a
+// granted origin. Null when a feed redirected to an origin still to be granted: the review then
+// offers the new URL, and the next click requests it.
+async function resolveSelectedFeeds (selected) {
+  const feeds = []
+  for (const item of selected) {
+    const result = item.validated
+      ? { url: item.url, cache: item.validated }
+      : await getFeedAdapter(item.type)?.refresh(item.url)
+    if (!result) throw new Error(`Unsupported feed type: ${item.type}`)
+    if (!(await canFetch(result.url))) {
+      const retargeted = retargetCandidate({
+        candidates: review.value.candidates, selectedUrls: selectedUrls.value
+      }, item.url, result)
+      review.value.candidates = retargeted.candidates
+      selectedUrls.value = retargeted.selectedUrls
+      error.value = 'A feed redirected to another site. Click Add again to grant that exact origin.'
+      return null
+    }
+    feeds.push(feedSourceInput(item, result, review.value.discoveredFrom))
+  }
+  return feeds
+}
+
 async function confirmSelection () {
   if (!review.value) return
-  error.value = ''
   const selected = wantsFeeds.value
     ? review.value.candidates.filter(item => selectedUrls.value.includes(item.url))
     : []
-  if (wantsFeeds.value && !selected.length) { error.value = 'Select at least one feed'; return }
-  if (wantsFeeds.value && groupChoice.value === '__new__' && !groupName.value.trim()) {
-    error.value = 'Enter a feed group name'; return
-  }
-
-  const patterns = wantsFeeds.value
-    ? [...new Set(selected.map(item => normalizeTarget(item.url)?.originPattern).filter(Boolean))]
-    : []
+  error.value = selectionError({
+    wantsFeeds: wantsFeeds.value, selected, groupChoice: groupChoice.value, groupName: groupName.value
+  })
+  if (error.value) return
+  const patterns = selectedOriginPatterns(selected)
 
   busy.value = true
   try {
@@ -185,48 +221,17 @@ async function confirmSelection () {
     rememberPatterns(origins)
     grantedOrigins.add(origins)
 
-    if (wantsFeeds.value && groupChoice.value !== '__new__') {
-      const currentGroups = await getFeedGroups()
-      if (!currentGroups.some(group => group.id === groupChoice.value)) {
-        groups.value = currentGroups
-        groupChoice.value = '__new__'
-        const first = selected[0]
-        groupName.value = suggestGroupName(first?.title || 'Feed group', currentGroups)
-        error.value = 'The selected feed group was deleted. Choose another group or create a new one.'
-        return
-      }
-      groups.value = currentGroups
-    }
-
-    const feeds = []
-    for (const item of selected) {
-      const result = item.validated
-        ? { url: item.url, cache: item.validated }
-        : await getFeedAdapter(item.type)?.refresh(item.url)
-      if (!result) throw new Error(`Unsupported feed type: ${item.type}`)
-      const final = normalizeTarget(result.url)
-      if (!final || !(await browser.permissions.contains({ origins: [final.originPattern] }))) {
-        review.value.candidates = review.value.candidates.map(candidate =>
-          candidate.url === item.url ? { ...candidate, url: result.url, validated: result.cache } : candidate)
-        selectedUrls.value = selectedUrls.value.map(url => url === item.url ? result.url : url)
-        error.value = 'A feed redirected to another site. Click Add again to grant that exact origin.'
-        return
-      }
-      feeds.push({
-        type: item.type,
-        url: result.url,
-        title: result.cache.channel?.title || item.title,
-        discoveredFrom: review.value.discoveredFrom,
-        cache: result.cache
-      })
-    }
-
-    await addSiteAndFeedSources({
-      siteInput: (!review.value.direct && (choice.value === 'site' || choice.value === 'both')) ? review.value.pageUrl : null,
-      feeds: wantsFeeds.value ? feeds : [],
-      groupId: wantsFeeds.value && groupChoice.value !== '__new__' ? groupChoice.value : null,
-      groupName: wantsFeeds.value && groupChoice.value === '__new__' ? groupName.value : ''
-    })
+    if (!(await selectedGroupStillExists(selected))) return
+    const feeds = await resolveSelectedFeeds(selected)
+    if (!feeds) return
+    await addSiteAndFeedSources(siteAndFeedsRequest({
+      review: review.value,
+      choice: choice.value,
+      wantsFeeds: wantsFeeds.value,
+      groupChoice: groupChoice.value,
+      groupName: groupName.value,
+      feeds
+    }))
     await finish()
   } catch (e) {
     error.value = e?.message || String(e)
@@ -351,7 +356,7 @@ onBeforeUnmount(() => {
           v-model="groupChoice"
           class="input"
         >
-          <option value="__new__">
+          <option :value="NEW_GROUP">
             New group…
           </option>
           <option
@@ -363,7 +368,7 @@ onBeforeUnmount(() => {
           </option>
         </select>
         <input
-          v-if="groupChoice === '__new__'"
+          v-if="groupChoice === NEW_GROUP"
           v-model="groupName"
           class="input"
           type="text"

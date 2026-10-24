@@ -1,5 +1,5 @@
 import {
-  MAX_FEED_BYTES, MAX_FEED_DESCRIPTION_CHARS, MAX_FEED_ITEMS,
+  MAX_FEED_BYTES, MAX_FEED_DESCRIPTION_CHARS, collectFeedItems,
   descriptionText, directChildren, hasPrologDoctype, imageFromMarkup,
   normalizeAudio, normalizeHttpUrl, parserFailed, readBoundedResponseText, safeDate
 } from './rss.js'
@@ -81,6 +81,21 @@ function itemAudio (entry, documentUrl) {
   return null
 }
 
+function parseAtomEntry (entry, url, Parser) {
+  const title = textConstruct(firstAtom(entry, 'title'), Parser) || 'Untitled'
+  const link = atomLink(entry, 'alternate', url, { htmlOnly: true })
+  const publishedAt = safeDate(firstAtom(entry, 'published')?.textContent || firstAtom(entry, 'updated')?.textContent)
+  const summary = firstAtom(entry, 'summary')
+  const content = firstAtom(entry, 'content')
+  const descriptionNode = summary || content
+  const rawMarkup = descriptionNode?.textContent || ''
+  const description = Array.from(textConstruct(descriptionNode, Parser)).slice(0, MAX_FEED_DESCRIPTION_CHARS).join('')
+  const imageUrl = itemImage(entry, rawMarkup, url, Parser)
+  const audio = itemAudio(entry, url)
+  const id = String(firstAtom(entry, 'id')?.textContent || '').trim() || link || `${publishedAt ?? ''}:${title}`
+  return { id, title, url: link, publishedAt, description, imageUrl, audio }
+}
+
 export function parseAtom (xml, { url, Parser = globalThis.DOMParser } = {}) {
   if (typeof xml !== 'string' || !xml.trim()) throw new Error('Empty Atom response')
   if (hasPrologDoctype(xml)) throw new Error('Atom documents with a DOCTYPE are not supported')
@@ -97,25 +112,7 @@ export function parseAtom (xml, { url, Parser = globalThis.DOMParser } = {}) {
     title: textConstruct(firstAtom(root, 'title'), Parser) || new URL(url).hostname,
     url: atomLink(root, 'alternate', url, { htmlOnly: true })
   }
-  const seen = new Set()
-  const items = []
-  for (const entry of atomChildren(root, 'entry')) {
-    const title = textConstruct(firstAtom(entry, 'title'), Parser) || 'Untitled'
-    const link = atomLink(entry, 'alternate', url, { htmlOnly: true })
-    const publishedAt = safeDate(firstAtom(entry, 'published')?.textContent || firstAtom(entry, 'updated')?.textContent)
-    const summary = firstAtom(entry, 'summary')
-    const content = firstAtom(entry, 'content')
-    const descriptionNode = summary || content
-    const rawMarkup = descriptionNode?.textContent || ''
-    const description = Array.from(textConstruct(descriptionNode, Parser)).slice(0, MAX_FEED_DESCRIPTION_CHARS).join('')
-    const imageUrl = itemImage(entry, rawMarkup, url, Parser)
-    const audio = itemAudio(entry, url)
-    const id = String(firstAtom(entry, 'id')?.textContent || '').trim() || link || `${publishedAt ?? ''}:${title}`
-    if (seen.has(id)) continue
-    seen.add(id)
-    items.push({ id, title, url: link, publishedAt, description, imageUrl, audio })
-    if (items.length >= MAX_FEED_ITEMS) break
-  }
+  const items = collectFeedItems(atomChildren(root, 'entry'), entry => parseAtomEntry(entry, url, Parser))
   return { channel, items }
 }
 

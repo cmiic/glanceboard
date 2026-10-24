@@ -30,9 +30,9 @@ const KEYS = {
   feedSources: 'feedSources', feedGroups: 'feedGroups', readLater: 'readLater', podcastProgress: 'podcastProgress'
 }
 // Per-entry results key prefix. `result:<entry id>` → that site's or page's rolling history.
-const RESULT_PREFIX = 'result:'
-const FEED_CACHE_PREFIX = 'feed-cache:'
-const FEED_READ_PREFIX = 'feed-read:'
+export const RESULT_PREFIX = 'result:'
+export const FEED_CACHE_PREFIX = 'feed-cache:'
+export const FEED_READ_PREFIX = 'feed-read:'
 
 // No default hosts — the user adds their own. (Kept as an empty list so seeding a default
 // set later is trivial if ever wanted.)
@@ -755,4 +755,19 @@ export function onChanged (callback) {
   }
   browser.storage.onChanged.addListener(listener)
   return () => browser.storage.onChanged.removeListener(listener)
+}
+
+// Fold one per-key prefix's storage.onChanged entries (`result:`, `feed-cache:`, `feed-read:`) into a
+// copy of the current id -> value map; a removed key drops its id. Null when no key carries the
+// prefix, so a caller can leave its state, and whatever renders it, untouched.
+export function mergePrefixedChanges (current, changes, prefix) {
+  let next = null
+  for (const [key, change] of Object.entries(changes || {})) {
+    if (!key.startsWith(prefix)) continue
+    next ||= { ...current }
+    const id = key.slice(prefix.length)
+    if (change.newValue == null) delete next[id]
+    else next[id] = change.newValue
+  }
+  return next
 }
