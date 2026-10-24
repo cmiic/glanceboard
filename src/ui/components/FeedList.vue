@@ -28,11 +28,7 @@ watch(() => props.groups, groups => {
   knownGroupNames = Object.fromEntries((groups || []).map(group => [group.id, group.name]))
 }, { immediate: true, deep: true })
 
-const sourcesByGroup = computed(() => {
-  const out = {}
-  for (const source of props.sources) (out[source.groupId] ||= []).push(source)
-  return out
-})
+const sourcesByGroup = computed(() => Object.groupBy(props.sources, source => source.groupId))
 
 async function run (id, fn) {
   error.value = ''
@@ -89,16 +85,20 @@ async function updateRefresh (source, value) {
   })
 }
 
+const formatScheduleTime = value => value ? new Date(value).toLocaleString([], {
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+}) : '—'
+
+function nextRefreshText (source, schedule) {
+  if (!props.pollingEnabled) return 'background paused globally'
+  if (feedSourceRefresh(source).mode === 'off') return 'background off'
+  return `next ${formatScheduleTime(schedule?.nextRefreshAt)}`
+}
+
 function scheduleText (source) {
   const schedule = props.caches[source.id]?.schedule
-  const format = value => value ? new Date(value).toLocaleString([], {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
-  }) : '—'
-  const next = !props.pollingEnabled
-    ? 'background paused globally'
-    : feedSourceRefresh(source).mode === 'off' ? 'background off' : `next ${format(schedule?.nextRefreshAt)}`
-  return `Last attempt ${format(schedule?.lastAttemptAt)} · ${next}`
+  return `Last attempt ${formatScheduleTime(schedule?.lastAttemptAt)} · ${nextRefreshText(source, schedule)}`
 }
 
 async function grant (source) {

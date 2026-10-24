@@ -322,7 +322,7 @@ async function resolveMode () {
 onMounted(() => {
   resolveMode()
   document.addEventListener('visibilitychange', onVisibility)
-  gap.value = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--gap'), 10) || 14
+  gap.value = Number.parseInt(getComputedStyle(document.documentElement).getPropertyValue('--gap'), 10) || 14
   if ('ResizeObserver' in window) {
     wallObserver = new ResizeObserver(() => { wallWidth.value = wallEl.value?.clientWidth || 0 })
   }
