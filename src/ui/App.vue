@@ -123,9 +123,10 @@ function loadText (host) {
     </div>
     <AddHostForm />
     <div style="margin-top: 10px">
-      <div
+      <button
         v-for="host in hosts"
         :key="host.id"
+        type="button"
         class="host-row"
         @click="openSite(host)"
       >
@@ -138,17 +139,18 @@ function loadText (host) {
           :title="host.url"
         >{{ label(host) }}</span>
         <span class="popup-load">{{ loadText(host) }}</span>
-      </div>
-      <div
+      </button>
+      <button
         v-for="group in nonEmptyFeedGroups"
         :key="group.id"
+        type="button"
         class="host-row"
         @click="openDashboard"
       >
         <span class="feed-dot">FEED</span>
         <span class="name">{{ group.name }}</span>
         <span class="popup-load">{{ feedSources.filter(source => source.groupId === group.id).length }} feeds</span>
-      </div>
+      </button>
     </div>
   </div>
 
