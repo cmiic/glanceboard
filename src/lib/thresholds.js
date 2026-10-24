@@ -11,3 +11,12 @@ export const isLoadSlow = (ms) =>
 
 export const isStale = (timestamp, now = Date.now()) =>
   typeof timestamp === 'number' && timestamp < now - STALE_MS
+
+// Whole days until the leaf certificate of a webRequest.getSecurityInfo() result expires; negative
+// once it has. Null for a connection without TLS ('secure' or 'weak') or without an end date.
+export function certDaysFromSecurityInfo (info, now = Date.now()) {
+  if (info?.state !== 'secure' && info?.state !== 'weak') return null
+  const end = info.certificates?.[0]?.validity?.end
+  if (!end) return null
+  return Math.floor((end - now) / 86400000)
+}

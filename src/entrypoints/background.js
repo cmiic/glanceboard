@@ -7,6 +7,7 @@ import { refreshFeedSources } from '@/lib/feed-refresh.js'
 import { createFeedRefreshQueue } from '@/lib/feed-refresh-queue.js'
 import { createFeedReadQueue } from '@/lib/feed-read-queue.js'
 import { nextFeedRefreshAt } from '@/lib/feed-polling.js'
+import { certDaysFromSecurityInfo } from '@/lib/thresholds.js'
 import {
   getHosts, getSettings, pushResult, ensureSeeded, migrateResultsToPerKey,
   reconcileOriginPermissions, reconcileFeedReadState, entryOrigin, entryLabel,
@@ -29,14 +30,6 @@ export default defineBackground({
     // matches on origin. Kept in sync with storage.local `hosts` (populated in init, refreshed on
     // change) so the blocking onHeadersReceived path can check it synchronously.
     let approvedOrigins = new Set()
-
-    function certDaysFromSecurityInfo (info) {
-      if (!info || (info.state !== 'secure' && info.state !== 'weak')) return null
-      const cert = info.certificates && info.certificates[0]
-      const end = cert && cert.validity && cert.validity.end
-      if (!end) return null
-      return Math.floor((end - Date.now()) / 86400000)
-    }
 
     // Fire-and-forget cert capture, kept OUT of the blocking return path so header stripping stays
     // synchronous; getSecurityInfo is initiated while the requestId is still valid.
