@@ -67,7 +67,9 @@ export function descriptionText (markup, Parser) {
     const document = htmlDocument(markup, Parser)
     return String(document.body?.textContent || document.documentElement?.textContent || '').replace(/\s+/g, ' ').trim()
   } catch {
-    return String(markup).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+    // A tag cannot contain '<': with [^>] instead, a long run of '<' and no '>' in a feed
+    // description rescans to its end from every '<', which is quadratic.
+    return String(markup).replace(/<[^<>]*>/g, ' ').replace(/\s+/g, ' ').trim()
   }
 }
 

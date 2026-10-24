@@ -217,3 +217,12 @@ test('unpermitted cross-origin advertisements remain selectable for later valida
   assert.equal(result.candidates.length, 2)
   assert.deepEqual(defaultCandidateIds(result.candidates), ['https://feeds.test/main'])
 })
+
+test('discoverFromLinkHeader is linear on a header full of unclosed angle brackets', () => {
+  // A run of '<' with no '>' used to rescan the rest of the part from every '<' (seconds at this size).
+  const started = performance.now()
+  assert.deepEqual(discoverFromLinkHeader('<'.repeat(100000), 'https://example.com/'), [])
+  assert.ok(performance.now() - started < 1000, 'parsing an unclosed run must not be quadratic')
+  assert.deepEqual(discoverFromLinkHeader('<</feed.xml>; rel="alternate"; type="application/rss+xml"', 'https://example.com/')
+    .map(item => item.url), ['https://example.com/feed.xml'])
+})
