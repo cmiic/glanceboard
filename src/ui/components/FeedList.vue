@@ -129,6 +129,7 @@ async function grant (source) {
         type="text"
         maxlength="80"
         placeholder="New group name"
+        aria-label="New group name"
       >
       <button
         class="btn"
@@ -232,9 +233,8 @@ async function grant (source) {
         >
           Remove
         </button>
-        <div
+        <fieldset
           class="feed-display-settings"
-          role="group"
           :aria-label="`Display settings for ${source.title}`"
         >
           <label><input
@@ -283,7 +283,7 @@ async function grant (source) {
               </option>
             </select>
           </label>
-        </div>
+        </fieldset>
       </div>
     </section>
   </div>
@@ -300,7 +300,7 @@ async function grant (source) {
 .feed-source-name { flex: 1; min-width: 220px; overflow: hidden; }
 .url-wrap { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .input-sm { padding: 5px 8px; font-size: 12px; max-width: 170px; }
-.feed-display-settings { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding-left: min(24px, 3vw); font-size: 12px; color: var(--text-dim); }
+.feed-display-settings { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 14px; min-inline-size: 0; margin: 0; padding: 0 0 0 min(24px, 3vw); border: 0; font-size: 12px; color: var(--text-dim); }
 .feed-display-settings label { display: inline-flex; align-items: center; gap: 5px; }
 .description-limit { flex-wrap: wrap; }
 .limit-input { width: 76px; padding: 4px 6px; font-size: 12px; }

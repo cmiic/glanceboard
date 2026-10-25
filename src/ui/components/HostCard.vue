@@ -222,6 +222,7 @@ function onMouseLeave () {
         v-if="frameSrc"
         :key="frameKey"
         :src="frameSrc"
+        :title="`Preview of ${label}`"
         :style="{ transform: 'scale(' + scale + ')', height: frameHeight + 'px' }"
         sandbox="allow-scripts allow-same-origin allow-forms"
         referrerpolicy="no-referrer"
@@ -233,16 +234,13 @@ function onMouseLeave () {
       >
         {{ mode === 'mobile' ? 'Scroll to load preview' : 'Waiting to load…' }}
       </div>
-      <div
+      <button
         v-if="mode === 'mobile'"
+        type="button"
         class="overlay"
-        role="button"
-        tabindex="0"
         title="Open site"
         aria-label="Open site"
         @click="openSite"
-        @keydown.enter="openSite"
-        @keydown.space.prevent="openSite"
       />
     </div>
 

@@ -97,7 +97,7 @@ a { color: var(--primary); }
   position: absolute; top: 0; left: 0; width: 1280px; height: 800px; border: 0;
   transform-origin: 0 0; background: #fff;
 }
-.preview .overlay { position: absolute; inset: 0; cursor: pointer; }
+.preview .overlay { position: absolute; inset: 0; cursor: pointer; padding: 0; border: 0; background: transparent; }
 .preview .placeholder { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-dim); font-size: 13px; }
 
 .chart { height: 90px; padding: 6px 8px; }
@@ -121,6 +121,8 @@ a { color: var(--primary); }
 
 .popup { width: 340px; padding: 12px; }
 .popup .host-row { margin-bottom: 6px; padding: 6px 8px; cursor: pointer; }
+/* The popup's rows are buttons, so keyboard users can open them; keep them looking like rows. */
+button.host-row { width: 100%; font: inherit; color: inherit; text-align: left; }
 .popup-load { font-size: 12px; color: var(--text-dim); }
 
 @media (max-width: 620px) {
