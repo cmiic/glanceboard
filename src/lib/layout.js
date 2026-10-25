@@ -144,9 +144,15 @@ export function toRows (px) {
   return Math.round(px / ROW_HEIGHT)
 }
 
+// Plain code-unit order, not localeCompare: the order only has to be stable, not human-friendly.
+function compareIds (a, b) {
+  const left = String(a?.id)
+  const right = String(b?.id)
+  if (left === right) return 0
+  return left < right ? -1 : 1
+}
+
 // Stable DOM order for rendering: sort by id, so rearranging the wall never reorders the tree.
 export function domOrder (hosts) {
-  return (Array.isArray(hosts) ? hosts.slice() : []).sort((a, b) => (
-    String(a?.id) < String(b?.id) ? -1 : String(a?.id) > String(b?.id) ? 1 : 0
-  ))
+  return (Array.isArray(hosts) ? hosts.slice() : []).sort(compareIds)
 }

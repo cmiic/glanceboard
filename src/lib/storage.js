@@ -124,12 +124,12 @@ export async function setFeedItemRead (sourceId, itemId, read, readAt = Date.now
   const key = FEED_READ_PREFIX + sourceId
   const stored = await browser.storage.local.get(key)
   const current = normalizeFeedReadItems(stored?.[key]?.items)
-  const existing = current.find(item => item.id === id)
+  const alreadyRead = current.some(item => item.id === id)
   let items
   if (read) {
     const timestamp = Number(readAt)
     if (!Number.isFinite(timestamp) || timestamp < 0) throw new Error('Invalid read timestamp')
-    items = existing
+    items = alreadyRead
       ? current
       : normalizeFeedReadItems([{ id, readAt: timestamp }, ...current], MAX_FEED_READ_ITEMS)
   } else {
@@ -238,11 +238,9 @@ export async function setFeedCachesForExistingSources (cachesBySourceId) {
 
   const existingAfter = new Set((await getFeedSources()).map(source => source.id))
   const orphaned = Object.keys(written).filter(id => !existingAfter.has(id))
-  if (orphaned.length) {
-    await browser.storage.local.remove(orphaned.map(id => FEED_CACHE_PREFIX + id))
-    for (const id of orphaned) delete written[id]
-  }
-  return written
+  if (!orphaned.length) return written
+  await browser.storage.local.remove(orphaned.map(id => FEED_CACHE_PREFIX + id))
+  return Object.fromEntries(Object.entries(written).filter(([id]) => existingAfter.has(id)))
 }
 
 function originPattern (url) {
@@ -323,9 +321,10 @@ function groupNameExists (groups, name, exceptId = null) {
   return groups.some(group => group.id !== exceptId && feedGroupNameKey(group.name) === key)
 }
 
+// Extension pages are secure contexts, and Firefox 142 (strict_min_version) as well as Node have
+// crypto.randomUUID().
 function newGroupId () {
-  const value = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`
-  return `feed-group:${value}`
+  return `feed-group:${crypto.randomUUID()}`
 }
 
 export function suggestGroupName (base, groups) {
@@ -455,7 +454,7 @@ export async function setFeedSourceDisplay (id, patch) {
   const sources = await getFeedSources()
   if (!sources.some(source => source.id === id)) throw new Error('Feed source not found')
   const next = sources.map(source => source.id === id
-    ? { ...source, display: feedSourceDisplay({ display: { ...feedSourceDisplay(source), ...(patch || {}) } }) }
+    ? { ...source, display: feedSourceDisplay({ display: { ...feedSourceDisplay(source), ...patch } }) }
     : source)
   await browser.storage.local.set({ [KEYS.feedSources]: next })
   return next
@@ -465,7 +464,7 @@ export async function setFeedSourceRefresh (id, patch) {
   const sources = await getFeedSources()
   if (!sources.some(source => source.id === id)) throw new Error('Feed source not found')
   const next = sources.map(source => source.id === id
-    ? { ...source, refresh: feedSourceRefresh({ refresh: { ...feedSourceRefresh(source), ...(patch || {}) } }) }
+    ? { ...source, refresh: feedSourceRefresh({ refresh: { ...feedSourceRefresh(source), ...patch } }) }
     : source)
   const source = next.find(item => item.id === id)
   const key = FEED_CACHE_PREFIX + id
@@ -475,7 +474,7 @@ export async function setFeedSourceRefresh (id, patch) {
     writes[key] = {
       ...cache,
       schedule: {
-        ...(cache.schedule || {}),
+        ...cache.schedule,
         nextRefreshAt: source.refresh.mode === 'off' ? null : Date.now()
       }
     }
@@ -723,9 +722,9 @@ export async function migrateResultsToPerKey () {
 
 export async function getSettings () {
   const { [KEYS.settings]: s } = await browser.storage.local.get(KEYS.settings)
-  const merged = { ...DEFAULT_SETTINGS, ...(s || {}) }
+  const merged = { ...DEFAULT_SETTINGS, ...s }
   // metricDefaults is nested — deep-merge so a partial stored value keeps the other key's default.
-  merged.metricDefaults = { ...DEFAULT_SETTINGS.metricDefaults, ...(s?.metricDefaults || {}) }
+  merged.metricDefaults = { ...DEFAULT_SETTINGS.metricDefaults, ...s?.metricDefaults }
   return merged
 }
 
@@ -733,7 +732,7 @@ export async function setSettings (patch) {
   const current = await getSettings()
   const next = { ...current, ...patch }
   // Merge (not replace) the nested metricDefaults so partial patches aren't destructive.
-  if (patch && patch.metricDefaults) {
+  if (patch?.metricDefaults) {
     next.metricDefaults = { ...current.metricDefaults, ...patch.metricDefaults }
   }
   await browser.storage.local.set({ [KEYS.settings]: next })

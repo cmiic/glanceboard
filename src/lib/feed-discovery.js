@@ -57,7 +57,9 @@ function splitLinkHeader (value) {
 export function discoverFromLinkHeader (value, pageUrl) {
   const found = []
   for (const part of splitLinkHeader(value)) {
-    const href = /<([^>]+)>/.exec(part)?.[1]
+    // [^<>], not [^>]: a run of '<' with no '>' would otherwise rescan the rest of the header from
+    // every '<', which is quadratic in a header the site controls.
+    const href = /<([^<>]+)>/.exec(part)?.[1]
     const rel = /;\s*rel\s*=\s*["']?([^;"']+)/i.exec(part)?.[1] || ''
     const mediaType = (/;\s*type\s*=\s*["']?([^;"']+)/i.exec(part)?.[1] || '').toLowerCase()
     const type = TYPE_BY_MEDIA.get(mediaType)
@@ -73,10 +75,10 @@ export function discoverFromHtml (html, pageUrl, Parser = globalThis.DOMParser) 
   const document = new Parser().parseFromString(String(html || ''), 'text/html')
   const found = []
   for (const link of Array.from(document.querySelectorAll('link[rel][href]'))) {
-    const rels = String(link.getAttribute('rel') || '').toLowerCase().split(/\s+/)
+    const rels = new Set(String(link.getAttribute('rel') || '').toLowerCase().split(/\s+/))
     const mediaType = String(link.getAttribute('type') || '').toLowerCase().split(';')[0].trim()
     const type = TYPE_BY_MEDIA.get(mediaType)
-    if (!rels.includes('alternate') || rels.includes('stylesheet') || !type) continue
+    if (!rels.has('alternate') || rels.has('stylesheet') || !type) continue
     const url = normalizeHttpUrl(link.getAttribute('href'), pageUrl)
     const item = candidate(url, link.getAttribute('title'), type)
     if (item) found.push(item)

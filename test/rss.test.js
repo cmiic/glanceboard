@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DOMParser } from 'linkedom'
 import {
-  parseRss, fetchRss, cacheWithError, mergeFeedItems, normalizeHttpUrl,
+  parseRss, fetchRss, cacheWithError, mergeFeedItems, normalizeHttpUrl, descriptionText,
   truncateFeedDescription, MAX_FEED_BYTES, MAX_FEED_ITEMS, MAX_FEED_DESCRIPTION_CHARS
 } from '../src/lib/rss.js'
 
@@ -199,4 +199,14 @@ test('cacheWithError preserves stale items for partial group failures', () => {
   const failed = cacheWithError(previous, new Error('offline'), 2)
   assert.deepEqual(failed.items, previous.items)
   assert.deepEqual(failed.error, { message: 'offline', at: 2 })
+})
+
+test('descriptionText: the tag-stripping fallback is linear on unclosed tags', () => {
+  // Without a DOMParser, descriptionText falls back to stripping tags with a regular expression.
+  assert.equal(descriptionText('a <b>bold</b> <i>c</i>'), 'a bold c')
+  // A run of '<' with no '>' used to rescan to the end from every '<' (seconds at this size).
+  const unclosed = '<'.repeat(100000) + 'text'
+  const started = performance.now()
+  assert.equal(descriptionText(unclosed), unclosed)
+  assert.ok(performance.now() - started < 1000, 'stripping an unclosed run must not be quadratic')
 })

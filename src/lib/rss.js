@@ -67,7 +67,9 @@ export function descriptionText (markup, Parser) {
     const document = htmlDocument(markup, Parser)
     return String(document.body?.textContent || document.documentElement?.textContent || '').replace(/\s+/g, ' ').trim()
   } catch {
-    return String(markup).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+    // A tag cannot contain '<': with [^>] instead, a long run of '<' and no '>' in a feed
+    // description rescans to its end from every '<', which is quadratic.
+    return String(markup).replace(/<[^<>]*>/g, ' ').replace(/\s+/g, ' ').trim()
   }
 }
 
@@ -124,8 +126,8 @@ export function normalizeAudio (value, base) {
   if (!url || (!mimeType?.startsWith('audio/') && !AUDIO_EXTENSIONS.test(url))) return null
   const hasByteLength = value?.byteLength != null && value.byteLength !== ''
   const hasDuration = value?.durationSeconds != null && value.durationSeconds !== ''
-  const byteLength = hasByteLength ? Number(value.byteLength) : NaN
-  const durationSeconds = hasDuration ? Number(value.durationSeconds) : NaN
+  const byteLength = hasByteLength ? Number(value.byteLength) : Number.NaN
+  const durationSeconds = hasDuration ? Number(value.durationSeconds) : Number.NaN
   return {
     url,
     mimeType,

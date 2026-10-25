@@ -82,40 +82,36 @@ async function exportHosts () {
   setTimeout(() => URL.revokeObjectURL(url), 10000)
 }
 
-function onFile (e) {
+async function onFile (e) {
   importError.value = ''
   importNotice.value = ''
   const file = e.target.files?.[0]
   e.target.value = '' // allow re-picking the same file
   if (!file) return
-  const reader = new FileReader()
-  reader.onload = async () => {
-    let imported
-    try {
-      const parsed = JSON.parse(String(reader.result))
-      const { sites, feedGroups, readLater, feedReadState } = parseImportDocument(parsed)
-      if (!sites.length && !feedGroups.length && !readLater.length && !feedReadState.length) {
-        importError.value = 'No sites, feed groups, saved items, or read markers found in file'
-        pending.value = null
-        return
-      }
-      imported = { sites, feedGroups, readLater, feedReadState }
-    } catch {
-      importError.value = 'Invalid JSON file'
+  let imported
+  try {
+    const parsed = JSON.parse(await file.text())
+    const { sites, feedGroups, readLater, feedReadState } = parseImportDocument(parsed)
+    if (!sites.length && !feedGroups.length && !readLater.length && !feedReadState.length) {
+      importError.value = 'No sites, feed groups, saved items, or read markers found in file'
       pending.value = null
       return
     }
-    try {
-      // File inspection is outside the later confirmation click, so this storage round-trip cannot
-      // consume the user gesture Firefox requires for permissions.request().
-      if (imported.readLater.length) await previewReadLaterMerge(imported.readLater)
-      pending.value = imported
-    } catch (error) {
-      importError.value = error?.message || String(error)
-      pending.value = null
-    }
+    imported = { sites, feedGroups, readLater, feedReadState }
+  } catch {
+    importError.value = 'Invalid JSON file'
+    pending.value = null
+    return
   }
-  reader.readAsText(file)
+  try {
+    // File inspection is outside the later confirmation click, so this storage round-trip cannot
+    // consume the user gesture Firefox requires for permissions.request().
+    if (imported.readLater.length) await previewReadLaterMerge(imported.readLater)
+    pending.value = imported
+  } catch (error) {
+    importError.value = error?.message || String(error)
+    pending.value = null
+  }
 }
 
 async function doImport () {
