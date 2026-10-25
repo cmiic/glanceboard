@@ -242,6 +242,21 @@ Adding a feed on a host you had already granted no longer asks for that permissi
 longer fails for the same reason.
 ```
 
+For 0.6.2:
+
+```text
+Better keyboard and screen-reader support. The toolbar popup's sites and feed groups can now be
+reached with Tab and opened with Enter or Space. Every field and menu has a label that screen readers
+announce, each site preview has a title, and the mobile layout's tap-to-open overlay is a proper
+button.
+
+Feed reading is hardened against malformed feeds and sites: two text-processing steps that could
+spend seconds on a long run of unmatched "<" characters now finish immediately. Importing a backup
+file that can no longer be read now shows an error instead of doing nothing.
+
+Also updates Vue and includes internal cleanups with no change in behaviour.
+```
+
 ## About the innerHTML validator warning
 
 AMO's validator reports a non-blocking **Warning**: "Unsafe assignment to innerHTML" in
