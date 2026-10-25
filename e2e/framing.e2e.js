@@ -30,7 +30,10 @@ before(async () => {
       try { top.location.href = '${ip}/busted.html' } catch (error) { parent.postMessage({ busterBlocked: error.name }, '*') }
       </script>`),
     '/busted.html': () => html('<!doctype html><title>Busted</title>'),
-    // An ordinary site, not the dashboard, embedding a protected page that the user did add.
+    // An ordinary page, not the dashboard, embedding a protected page that the user did add. It is
+    // served from the added, granted host: Firefox only runs the extension's header listener for a
+    // subframe when it holds permission for the embedder too, so only isFromOwnExtension() keeps
+    // this request's headers.
     '/embed.html': ({ ip }) => html(`<!doctype html><title>Embedder</title>
       <script>addEventListener('message', event => { document.title = 'framed ' + JSON.stringify(event.data) })</script>
       <iframe src="${ip}/protected.html"></iframe>`),
@@ -87,7 +90,7 @@ test('a framed site cannot navigate the dashboard away (sandbox without allow-to
 test('another site embedding an added site gets no stripped headers', { timeout: 60000 }, async () => {
   const page = await firefox.browser.newPage()
   const before = fixtures.requests.filter(line => line.endsWith(' /protected.html')).length
-  await page.goto(`${fixtures.hosts.name}/embed.html`)
+  await page.goto(`${fixtures.hosts.ip}/embed.html`)
   const deadline = Date.now() + 10000
   while (fixtures.requests.filter(line => line.endsWith(' /protected.html')).length <= before) {
     if (Date.now() > deadline) throw new Error('the embedding page never requested the protected page')

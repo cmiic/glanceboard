@@ -79,8 +79,9 @@ takes about a minute:
   cache refreshed and an item marked read in one show up in the other without a reload.
 
 Each was also run against a deliberately broken build: with an `await` before the add flow's or the
-import's permission request, without the framing-header stripping, or without the dashboard's
-`storage.onChanged` listener, the tests for that behaviour fail.
+import's permission request, without the framing-header stripping or either of its two guards
+(`isFromOwnExtension()`, `isApprovedTarget()`), or without the dashboard's `storage.onChanged`
+listener, the tests for that behaviour fail.
 
 How the harness (`e2e/harness.js`) gets a WebDriver session into an extension page, for whoever adds a
 test:
