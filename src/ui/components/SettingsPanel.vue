@@ -82,40 +82,36 @@ async function exportHosts () {
   setTimeout(() => URL.revokeObjectURL(url), 10000)
 }
 
-function onFile (e) {
+async function onFile (e) {
   importError.value = ''
   importNotice.value = ''
   const file = e.target.files?.[0]
   e.target.value = '' // allow re-picking the same file
   if (!file) return
-  const reader = new FileReader()
-  reader.onload = async () => {
-    let imported
-    try {
-      const parsed = JSON.parse(String(reader.result))
-      const { sites, feedGroups, readLater, feedReadState } = parseImportDocument(parsed)
-      if (!sites.length && !feedGroups.length && !readLater.length && !feedReadState.length) {
-        importError.value = 'No sites, feed groups, saved items, or read markers found in file'
-        pending.value = null
-        return
-      }
-      imported = { sites, feedGroups, readLater, feedReadState }
-    } catch {
-      importError.value = 'Invalid JSON file'
+  let imported
+  try {
+    const parsed = JSON.parse(await file.text())
+    const { sites, feedGroups, readLater, feedReadState } = parseImportDocument(parsed)
+    if (!sites.length && !feedGroups.length && !readLater.length && !feedReadState.length) {
+      importError.value = 'No sites, feed groups, saved items, or read markers found in file'
       pending.value = null
       return
     }
-    try {
-      // File inspection is outside the later confirmation click, so this storage round-trip cannot
-      // consume the user gesture Firefox requires for permissions.request().
-      if (imported.readLater.length) await previewReadLaterMerge(imported.readLater)
-      pending.value = imported
-    } catch (error) {
-      importError.value = error?.message || String(error)
-      pending.value = null
-    }
+    imported = { sites, feedGroups, readLater, feedReadState }
+  } catch {
+    importError.value = 'Invalid JSON file'
+    pending.value = null
+    return
   }
-  reader.readAsText(file)
+  try {
+    // File inspection is outside the later confirmation click, so this storage round-trip cannot
+    // consume the user gesture Firefox requires for permissions.request().
+    if (imported.readLater.length) await previewReadLaterMerge(imported.readLater)
+    pending.value = imported
+  } catch (error) {
+    importError.value = error?.message || String(error)
+    pending.value = null
+  }
 }
 
 async function doImport () {
@@ -169,7 +165,7 @@ async function doImport () {
 <template>
   <div class="settings">
     <div class="card setting">
-      <label class="setting-label">Open / home page</label>
+      <span class="setting-label">Open / home page</span>
       <p
         class="popup-load"
         style="margin: 0"
@@ -183,6 +179,7 @@ async function doImport () {
           class="input"
           style="flex: 1; min-width: 200px"
           :value="dashboardUrl"
+          aria-label="Glanceboard dashboard address"
           readonly
           @focus="$event.target.select()"
         >
@@ -199,8 +196,12 @@ async function doImport () {
       </p>
     </div>
     <div class="card setting">
-      <label class="setting-label">Background checks</label>
+      <label
+        class="setting-label"
+        for="settings-check-interval"
+      >Background checks</label>
       <select
+        id="settings-check-interval"
         v-model="intervalMinutes"
         class="input"
         @change="saveInterval"
@@ -239,8 +240,12 @@ async function doImport () {
     </div>
 
     <div class="card setting">
-      <label class="setting-label">Preview refresh</label>
+      <label
+        class="setting-label"
+        for="settings-preview-interval"
+      >Preview refresh</label>
       <select
+        id="settings-preview-interval"
         v-model="previewIntervalMinutes"
         class="input"
         @change="savePreviewInterval"
@@ -298,7 +303,7 @@ async function doImport () {
     </div>
 
     <div class="card setting">
-      <label class="setting-label">Metrics</label>
+      <span class="setting-label">Metrics</span>
       <p
         class="popup-load"
         style="margin: 0"
@@ -386,8 +391,12 @@ async function doImport () {
     </div>
 
     <div class="card setting">
-      <label class="setting-label">Card size (min width): {{ cardMinWidth }}px</label>
+      <label
+        class="setting-label"
+        for="settings-card-width"
+      >Card size (min width): {{ cardMinWidth }}px</label>
       <input
+        id="settings-card-width"
         v-model="cardMinWidth"
         type="range"
         min="240"
@@ -415,8 +424,12 @@ async function doImport () {
     </div>
 
     <div class="card setting">
-      <label class="setting-label">Layout</label>
+      <label
+        class="setting-label"
+        for="settings-layout"
+      >Layout</label>
       <select
+        id="settings-layout"
         v-model="mode"
         class="input"
         @change="saveMode"
@@ -434,7 +447,7 @@ async function doImport () {
     </div>
 
     <div class="card setting">
-      <label class="setting-label">Sites and feeds</label>
+      <span class="setting-label">Sites and feeds</span>
       <div class="field">
         <button
           class="btn"

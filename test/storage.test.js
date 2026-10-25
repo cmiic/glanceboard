@@ -497,3 +497,21 @@ test('ensureSeeded: sets the flag with an empty default host list', async () => 
   await storage.ensureSeeded()
   assert.deepEqual(await storage.getHosts(), [])
 })
+
+test('mergePrefixedChanges: folds one prefix into a copy, drops removed ids, ignores other keys', () => {
+  const current = { a: { n: 1 }, b: { n: 2 } }
+  const next = storage.mergePrefixedChanges(current, {
+    'result:a': { oldValue: { n: 1 }, newValue: { n: 10 } },
+    'result:b': { oldValue: { n: 2 } },
+    'result:c': { newValue: { n: 3 } },
+    'feed-cache:a': { newValue: { items: [] } },
+    hosts: { newValue: [] }
+  }, storage.RESULT_PREFIX)
+  assert.deepEqual(next, { a: { n: 10 }, c: { n: 3 } })
+  assert.deepEqual(current, { a: { n: 1 }, b: { n: 2 } }, 'the current map is not mutated')
+})
+
+test('mergePrefixedChanges: null when no key carries the prefix', () => {
+  assert.equal(storage.mergePrefixedChanges({ a: 1 }, { 'result:a': { newValue: 2 } }, storage.FEED_READ_PREFIX), null)
+  assert.equal(storage.mergePrefixedChanges({ a: 1 }, {}, storage.RESULT_PREFIX), null)
+})

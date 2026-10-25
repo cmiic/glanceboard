@@ -3,7 +3,8 @@ import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { browser } from '@/lib/browser.js'
 import {
   getHosts, getAllResults, getSettings, getFeedGroups, getFeedSources, getFeedCaches,
-  getFeedReadStates, getReadLater, onChanged, entryLabel
+  getFeedReadStates, getReadLater, onChanged, entryLabel, mergePrefixedChanges,
+  RESULT_PREFIX, FEED_CACHE_PREFIX, FEED_READ_PREFIX
 } from '@/lib/storage.js'
 import { isCertExpiringSoon, isLoadSlow, isStale } from '@/lib/thresholds.js'
 import MonitorGrid from './components/MonitorGrid.vue'
@@ -49,6 +50,12 @@ async function refresh () {
   readLater.value = saved
 }
 
+// Replace the map only when one of its keys changed, so an unrelated write doesn't re-render it.
+function applyPrefixedChanges (target, changes, prefix) {
+  const next = mergePrefixedChanges(target.value, changes, prefix)
+  if (next) target.value = next
+}
+
 function applyStorageChanges (changes) {
   if (changes.hosts) hosts.value = changes.hosts.newValue || []
   if (changes.feedGroups) feedGroups.value = changes.feedGroups.newValue || []
@@ -56,30 +63,9 @@ function applyStorageChanges (changes) {
   if (changes.settings) getSettings().then(value => { settings.value = value })
   if (changes.readLater) readLater.value = changes.readLater.newValue || []
 
-  let nextResults = null
-  let nextCaches = null
-  let nextReadStates = null
-  for (const [key, change] of Object.entries(changes)) {
-    if (key.startsWith('result:')) {
-      nextResults ||= { ...results.value }
-      const id = key.slice('result:'.length)
-      if (change.newValue == null) delete nextResults[id]
-      else nextResults[id] = change.newValue
-    } else if (key.startsWith('feed-cache:')) {
-      nextCaches ||= { ...feedCaches.value }
-      const id = key.slice('feed-cache:'.length)
-      if (change.newValue == null) delete nextCaches[id]
-      else nextCaches[id] = change.newValue
-    } else if (key.startsWith('feed-read:')) {
-      nextReadStates ||= { ...feedReadStates.value }
-      const id = key.slice('feed-read:'.length)
-      if (change.newValue == null) delete nextReadStates[id]
-      else nextReadStates[id] = change.newValue
-    }
-  }
-  if (nextResults) results.value = nextResults
-  if (nextCaches) feedCaches.value = nextCaches
-  if (nextReadStates) feedReadStates.value = nextReadStates
+  applyPrefixedChanges(results, changes, RESULT_PREFIX)
+  applyPrefixedChanges(feedCaches, changes, FEED_CACHE_PREFIX)
+  applyPrefixedChanges(feedReadStates, changes, FEED_READ_PREFIX)
 
   // Only the one-time legacy migration touches the old monolithic results key.
   if (changes.results) getAllResults().then(value => { results.value = value })
@@ -137,9 +123,10 @@ function loadText (host) {
     </div>
     <AddHostForm />
     <div style="margin-top: 10px">
-      <div
+      <button
         v-for="host in hosts"
         :key="host.id"
+        type="button"
         class="host-row"
         @click="openSite(host)"
       >
@@ -152,17 +139,18 @@ function loadText (host) {
           :title="host.url"
         >{{ label(host) }}</span>
         <span class="popup-load">{{ loadText(host) }}</span>
-      </div>
-      <div
+      </button>
+      <button
         v-for="group in nonEmptyFeedGroups"
         :key="group.id"
+        type="button"
         class="host-row"
         @click="openDashboard"
       >
         <span class="feed-dot">FEED</span>
         <span class="name">{{ group.name }}</span>
         <span class="popup-load">{{ feedSources.filter(source => source.groupId === group.id).length }} feeds</span>
-      </div>
+      </button>
     </div>
   </div>
 

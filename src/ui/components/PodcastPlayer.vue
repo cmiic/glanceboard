@@ -93,9 +93,8 @@ onBeforeUnmount(() => { persist(true); audioEl.value?.pause() })
 </script>
 
 <template>
-  <div
+  <section
     class="podcast-player"
-    role="region"
     aria-label="Podcast player"
   >
     <audio
@@ -161,7 +160,7 @@ onBeforeUnmount(() => { persist(true); audioEl.value?.pause() })
     >
       ×
     </button>
-  </div>
+  </section>
 </template>
 
 <style scoped>

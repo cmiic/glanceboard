@@ -32,15 +32,20 @@ export function feedHasNewItems (previous, next) {
   return (next?.items || []).some(item => !oldIds.has(String(item.id)))
 }
 
+// The interval a source's refresh setting asks for before any backoff: none when it is off, its
+// fixed interval, or — Auto — the feed's estimated publication cadence.
+function baseIntervalMinutes (configured, cadenceMinutes) {
+  if (configured.mode === 'off') return null
+  return configured.mode === 'fixed' ? configured.intervalMinutes : cadenceMinutes
+}
+
 export function scheduleSuccessfulFeedCache (source, previous, result, now = Date.now()) {
   const hasNew = !result.notModified && feedHasNewItems(previous, result.cache)
   const priorUnchanged = Number(previous?.schedule?.unchangedCount) || 0
   const unchangedCount = previous && !hasNew ? priorUnchanged + 1 : 0
   const cadenceMinutes = estimateFeedCadence(result.cache.items, now)
   const configured = feedSourceRefresh(source)
-  const base = configured.mode === 'off'
-    ? null
-    : configured.mode === 'fixed' ? configured.intervalMinutes : cadenceMinutes
+  const base = baseIntervalMinutes(configured, cadenceMinutes)
   const multiplier = configured.mode === 'auto' ? 2 ** Math.floor(unchangedCount / 3) : 1
   const interval = base == null ? null : Math.min(AUTO_MAX_MINUTES, base * multiplier)
   return {
@@ -58,10 +63,7 @@ export function scheduleSuccessfulFeedCache (source, previous, result, now = Dat
 export function scheduleFailedFeedCache (source, previous, error, now = Date.now()) {
   const failureCount = (Number(previous?.schedule?.failureCount) || 0) + 1
   const cadenceMinutes = Number(previous?.schedule?.cadenceMinutes) || estimateFeedCadence(previous?.items, now)
-  const configured = feedSourceRefresh(source)
-  const base = configured.mode === 'off'
-    ? null
-    : configured.mode === 'fixed' ? configured.intervalMinutes : cadenceMinutes
+  const base = baseIntervalMinutes(feedSourceRefresh(source), cadenceMinutes)
   const retryMinutes = base == null
     ? null
     : Math.min(AUTO_MAX_MINUTES, base * 2 ** (failureCount - 1))

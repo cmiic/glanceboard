@@ -28,11 +28,7 @@ watch(() => props.groups, groups => {
   knownGroupNames = Object.fromEntries((groups || []).map(group => [group.id, group.name]))
 }, { immediate: true, deep: true })
 
-const sourcesByGroup = computed(() => {
-  const out = {}
-  for (const source of props.sources) (out[source.groupId] ||= []).push(source)
-  return out
-})
+const sourcesByGroup = computed(() => Object.groupBy(props.sources, source => source.groupId))
 
 async function run (id, fn) {
   error.value = ''
@@ -89,16 +85,20 @@ async function updateRefresh (source, value) {
   })
 }
 
+const formatScheduleTime = value => value ? new Date(value).toLocaleString([], {
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+}) : '—'
+
+function nextRefreshText (source, schedule) {
+  if (!props.pollingEnabled) return 'background paused globally'
+  if (feedSourceRefresh(source).mode === 'off') return 'background off'
+  return `next ${formatScheduleTime(schedule?.nextRefreshAt)}`
+}
+
 function scheduleText (source) {
   const schedule = props.caches[source.id]?.schedule
-  const format = value => value ? new Date(value).toLocaleString([], {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
-  }) : '—'
-  const next = !props.pollingEnabled
-    ? 'background paused globally'
-    : feedSourceRefresh(source).mode === 'off' ? 'background off' : `next ${format(schedule?.nextRefreshAt)}`
-  return `Last attempt ${format(schedule?.lastAttemptAt)} · ${next}`
+  return `Last attempt ${formatScheduleTime(schedule?.lastAttemptAt)} · ${nextRefreshText(source, schedule)}`
 }
 
 async function grant (source) {
@@ -129,6 +129,7 @@ async function grant (source) {
         type="text"
         maxlength="80"
         placeholder="New group name"
+        aria-label="New group name"
       >
       <button
         class="btn"
@@ -232,9 +233,8 @@ async function grant (source) {
         >
           Remove
         </button>
-        <div
+        <fieldset
           class="feed-display-settings"
-          role="group"
           :aria-label="`Display settings for ${source.title}`"
         >
           <label><input
@@ -283,7 +283,7 @@ async function grant (source) {
               </option>
             </select>
           </label>
-        </div>
+        </fieldset>
       </div>
     </section>
   </div>
@@ -300,7 +300,7 @@ async function grant (source) {
 .feed-source-name { flex: 1; min-width: 220px; overflow: hidden; }
 .url-wrap { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .input-sm { padding: 5px 8px; font-size: 12px; max-width: 170px; }
-.feed-display-settings { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding-left: min(24px, 3vw); font-size: 12px; color: var(--text-dim); }
+.feed-display-settings { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 14px; min-inline-size: 0; margin: 0; padding: 0 0 0 min(24px, 3vw); border: 0; font-size: 12px; color: var(--text-dim); }
 .feed-display-settings label { display: inline-flex; align-items: center; gap: 5px; }
 .description-limit { flex-wrap: wrap; }
 .limit-input { width: 76px; padding: 4px 6px; font-size: 12px; }
