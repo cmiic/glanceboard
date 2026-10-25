@@ -46,8 +46,10 @@ tests below, as far as they reach, and otherwise by the manual checklist.
 ## Browser tests (Firefox, local)
 
 `npm run test:e2e` builds the extension and drives a real, headless Firefox with it installed, through
-`puppeteer-core` and WebDriver BiDi. It needs Firefox 137 or newer on `PATH` (or `FIREFOX_BIN` pointing
-at it); nothing is downloaded. `E2E_HEADFUL=1 npm run test:e2e` shows the browser window.
+`puppeteer-core` and WebDriver BiDi. It needs Firefox 142 or newer — the manifest's
+`strict_min_version` — on `PATH`, or `FIREFOX_BIN` pointing at it; nothing is downloaded. Like the other
+npm scripts it expects a POSIX shell (Linux, macOS or WSL). `E2E_HEADFUL=1 npm run test:e2e` shows the
+browser window.
 
 **Run it before pushing changes to `src/ui/`, `src/entrypoints/` or code the dashboard and background
 page call into.** It is not part of CI and has no git hook: it needs a local Firefox and a build, so it

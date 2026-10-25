@@ -1,6 +1,7 @@
-// Browser tests drive a real Firefox with the built extension installed. They need Firefox 137 or
-// newer (WebDriver BiDi `webExtension.install`) and a build in .output/firefox-mv2, which
-// `npm run test:e2e` makes first. See TESTING.md, "Browser tests (Firefox, local)".
+// Browser tests drive a real Firefox with the built extension installed. They need Firefox 142 or
+// newer — the manifest's strict_min_version; WebDriver BiDi `webExtension.install` itself arrived in
+// 137 — and a build in .output/firefox-mv2, which `npm run test:e2e` makes first. See TESTING.md,
+// "Browser tests (Firefox, local)".
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createServer } from 'node:http'
