@@ -98,6 +98,7 @@ npm run build          # build into .output/firefox-mv2/
 npm run zip            # package a distributable .zip
 npm test               # node:test unit suites (src/lib)
 npm run test:coverage  # the same suites, plus an LCOV report in coverage.lcov
+npm run test:e2e       # build, then browser tests in a local Firefox (see TESTING.md)
 npm run lint           # eslint + markdownlint
 ```
 

@@ -10,9 +10,10 @@ export default defineConfig({
   // The Firefox sources zip uses WXT's own excludeSources globs, NOT .gitignore — so gitignored
   // scratch dirs (e.g. tmp/ with HAR captures and review notes) and generated reports (the
   // coverage.lcov `npm run test:coverage` writes) would otherwise be bundled into the submitted
-  // sources. Keep them out.
+  // sources. Keep them out, along with the browser tests in e2e/: like test/, which the sources
+  // allowlist skips on its own, they are not needed to reproduce the build.
   zip: {
-    excludeSources: ['tmp/**', 'coverage.lcov']
+    excludeSources: ['tmp/**', 'coverage.lcov', 'e2e/**']
   },
   // Preserve the existing `@/...` imports used across the UI/lib.
   vite: () => ({
