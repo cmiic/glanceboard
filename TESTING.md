@@ -40,7 +40,44 @@ Suites:
 - `test/backup.test.js` — versioned site/feed/Read Later/read-state export plus legacy import
   compatibility.
 
-Browser-coupled code (the background page, Vue components, iframe behaviour) is verified manually.
+Browser-coupled code (the background page, Vue components, iframe behaviour) is covered by the browser
+tests below, as far as they reach, and otherwise by the manual checklist.
+
+## Browser tests (Firefox, local)
+
+`npm run test:e2e` builds the extension and drives a real, headless Firefox with it installed, through
+`puppeteer-core` and WebDriver BiDi. It needs Firefox 142 or newer — the manifest's
+`strict_min_version` — on `PATH`, or `FIREFOX_BIN` pointing at it; nothing is downloaded. Like the other
+npm scripts it expects a POSIX shell (Linux, macOS or WSL). `E2E_HEADFUL=1 npm run test:e2e` shows the
+browser window.
+
+**Run it before pushing changes to `src/ui/`, `src/entrypoints/` or code the dashboard and background
+page call into.** It is not part of CI and has no git hook: it needs a local Firefox and a build, so it
+stays a deliberate step before a push.
+
+Tests (`e2e/*.e2e.js`; `npm test` does not pick them up):
+
+- `e2e/extension.e2e.js` — the built extension installs and its dashboard opens; `permissions.request()`
+  succeeds from a click but fails after an `await` in the handler; and adding a page whose feed is on
+  another host grants each host from its click, adds the feed, and drops the discovery-only grant. With
+  an `await` put back before the confirmation's permission request (the #40 bug), the last test fails
+  with Firefox's "may only be called from a user input handler".
+
+How the harness (`e2e/harness.js`) gets a WebDriver session into an extension page, for whoever adds a
+test:
+
+- **Permission prompts are off** (`extensions.webextOptionalPermissionPrompts`), so a request is
+  granted without the doorhanger — but only from a user gesture, as in normal use.
+- **The extension's UUID is pinned** (`extensions.webextensions.uuids`), so its pages live at
+  `EXTENSION_BASE`. BiDi navigates only to http(s), file and blob URLs unless Firefox runs with
+  `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`, and it never reports the navigation to a `moz-extension://` page as
+  finished: open pages with `openExtensionPage()`, not `page.goto()`.
+- **Input goes through `click()` and `fill()`, never `page.click()` or `page.type()`.** Firefox treats
+  extension pages as privileged, and WebDriver refuses to send input into them. `click()` synthesizes
+  the mouse events in the browser window at the element's position instead; Firefox delivers them as
+  trusted input, so they count as a user gesture. `fill()` sets a field's value and fires `input`.
+- **Fixtures come from `startFixtureServer()`** on loopback. `127.0.0.1` and `localhost` are different
+  hosts to the extension's per-host permissions, so a page on one can advertise a feed on the other.
 
 ## Manual checklist (Firefox)
 
@@ -87,3 +124,6 @@ Build (`npm run build`) and load `.output/firefox-mv2/manifest.json` via `about:
 Drop a `*.test.js` into `test/` using `node:test` + `node:assert/strict`, importing the module under test
 from `../src/lib/...`. For storage, install an in-memory `globalThis.browser` mock **before** importing
 `storage.js` (see `test/storage.test.js` — `browser.js` binds the global at evaluation time).
+
+A browser test goes into `e2e/` as `*.e2e.js`, using the helpers in `e2e/harness.js` (see "Browser tests"
+above). Prefer a unit test in `test/` whenever the logic can live in `src/lib/`.
