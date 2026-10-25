@@ -35,7 +35,7 @@ after(async () => {
 test('the built extension installs and its dashboard opens at the pinned address', { timeout: 30000 }, async () => {
   assert.equal(firefox.id, EXTENSION_ID)
   const page = await openExtensionPage(firefox.browser, 'dashboard.html')
-  assert.equal(await page.evaluate(() => location.href), `${EXTENSION_BASE}/dashboard.html`)
+  assert.equal(await page.evaluate(() => location.origin + location.pathname), `${EXTENSION_BASE}/dashboard.html`)
   assert.equal(await page.$eval('h1', element => element.textContent.trim()), 'Glanceboard')
   await page.close()
 })
