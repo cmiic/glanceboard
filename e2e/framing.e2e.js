@@ -2,7 +2,7 @@
 // previews of sites the user added get X-Frame-Options and CSP frame-ancestors removed.
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { click, launchFirefox, startFixtureServer } from './harness.js'
+import { click, clickButton, launchFirefox, startFixtureServer } from './harness.js'
 import { addFeeds, addSite, openDashboard, resetExtension, storageGet } from './flows.js'
 
 const html = (body, headers = {}) => ({ headers: { 'content-type': 'text/html; charset=utf-8', ...headers }, body })
@@ -58,20 +58,22 @@ after(async () => {
   await fixtures?.close()
 })
 
+// Wait until a message the dashboard received matches `predicate(message, arg)`, checked here in Node.
 async function waitForMessage (predicate, arg, timeout = 15000) {
-  await dashboard.waitForFunction(
-    `window.e2eMessages.some(message => (${predicate})(message, ${JSON.stringify(arg)}))`,
-    { timeout }
-  ).catch(async error => {
-    const seen = await dashboard.evaluate(() => JSON.stringify(window.e2eMessages))
-    throw new Error(`no matching message; received ${seen}; requests ${fixtures.requests.join(', ')}`, { cause: error })
-  })
+  const deadline = Date.now() + timeout
+  let seen = []
+  while (Date.now() < deadline) {
+    seen = await dashboard.evaluate(() => window.e2eMessages)
+    if (seen.some(message => predicate(message, arg))) return
+    await sleep(100)
+  }
+  throw new Error(`no matching message; received ${JSON.stringify(seen)}; requests ${fixtures.requests.join(', ')}`)
 }
 
 test('an added site that forbids framing still shows in its preview, with its other CSP directives intact', { timeout: 60000 }, async () => {
   const url = `${fixtures.hosts.ip}/protected.html`
   await addSite(dashboard, url)
-  await click(dashboard, '.tabs button') // back to Monitor, where the previews are
+  await clickButton(dashboard, '.tabs', 'Monitor') // where the previews are
   await waitForMessage((message, target) => message.framed === target, url)
   await sleep(500)
   assert.ok(!fixtures.requests.some(line => line.endsWith(' /pixel.png')),
@@ -80,7 +82,7 @@ test('an added site that forbids framing still shows in its preview, with its ot
 
 test('a framed site cannot navigate the dashboard away (sandbox without allow-top-navigation)', { timeout: 60000 }, async () => {
   await addSite(dashboard, `${fixtures.hosts.ip}/buster.html`)
-  await click(dashboard, '.tabs button')
+  await clickButton(dashboard, '.tabs', 'Monitor')
   await waitForMessage(message => typeof message.busterBlocked === 'string')
   await sleep(500)
   assert.equal(await dashboard.evaluate(() => location.pathname), '/dashboard.html')
@@ -107,7 +109,7 @@ test('an added site redirecting to an origin that was granted but not added is n
   await addFeeds(dashboard, `${fixtures.hosts.name}/other-host.rss`, { group: 'Other host' })
   const url = `${fixtures.hosts.ip}/later-redirects`
   await addSite(dashboard, url)
-  await click(dashboard, '.tabs button')
+  await clickButton(dashboard, '.tabs', 'Monitor')
   await waitForMessage(message => message.plain === true)
 
   const target = `${fixtures.hosts.name}/protected.html`

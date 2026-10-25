@@ -27,14 +27,17 @@ export function storageGet (page, key) {
   return page.evaluate(async name => (await browser.storage.local.get(name))[name], key)
 }
 
-// Wait until `predicate(stored value of key, arg)` holds. The predicate runs in the page; it is
-// passed as source because the extension's CSP forbids building functions from strings there.
+// Wait until `predicate(stored value of key, arg)` holds. The predicate runs here in Node, on the
+// value read back from the page, so no code is built from strings.
 export async function waitForStorage (page, key, predicate, arg, timeout = 15000) {
-  const name = JSON.stringify(key)
-  await page.waitForFunction(
-    `(async () => (${predicate})((await browser.storage.local.get(${name}))[${name}], ${JSON.stringify(arg)}))()`,
-    { timeout }
-  )
+  const deadline = Date.now() + timeout
+  let stored
+  while (Date.now() < deadline) {
+    stored = await storageGet(page, key)
+    if (predicate(stored, arg)) return
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error(`storage "${key}" never matched; it holds ${JSON.stringify(stored)}`)
 }
 
 // Add a site through the Sites tab's form. Its host must offer no feed — neither advertised nor at
