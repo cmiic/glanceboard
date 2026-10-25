@@ -55,13 +55,32 @@ browser window.
 page call into.** It is not part of CI and has no git hook: it needs a local Firefox and a build, so it
 stays a deliberate step before a push.
 
-Tests (`e2e/*.e2e.js`; `npm test` does not pick them up):
+Tests (`e2e/*.e2e.js`; `npm test` does not pick them up). Each file starts one Firefox; the whole run
+takes about a minute:
 
 - `e2e/extension.e2e.js` — the built extension installs and its dashboard opens; `permissions.request()`
   succeeds from a click but fails after an `await` in the handler; and adding a page whose feed is on
-  another host grants each host from its click, adds the feed, and drops the discovery-only grant. With
-  an `await` put back before the confirmation's permission request (the #40 bug), the last test fails
-  with Firefox's "may only be called from a user input handler".
+  another host grants each host from its click, adds the feed, and drops the discovery-only grant.
+- `e2e/framing.e2e.js` **(security-critical)** — a site sending `X-Frame-Options: DENY` and CSP
+  `frame-ancestors 'none'` renders in its preview with its other CSP directives still enforced; a framed
+  page cannot navigate the dashboard away; an ordinary site embedding an added site gets nothing
+  stripped; and an added site redirecting to a granted-but-not-added origin leaves that origin protected.
+- `e2e/feeds.e2e.js` — two feeds in one group make one tile; creating a group, moving a feed into it and
+  renaming both groups; each feed's image, description and description limit (including `0`); a failing
+  feed keeping its cached headlines on refresh; a feed URL entered directly offered as a feed.
+- `e2e/backup.e2e.js` — a backup exported from Settings restores sites, typed feed URLs, empty groups,
+  membership, polling choices, group filters, Read Later and read markers after a reset, through the
+  permission request of the real "Grant & import" click; an older `{ "hosts": [...] }` file; and the
+  messages for a file that is not JSON or holds nothing valid.
+- `e2e/keyboard.e2e.js` — real key presses: Tab reaches the popup's rows in order, Enter opens a site and
+  Space a feed group's dashboard; Enter on a preview overlay in the mobile layout opens its site; and
+  clicking each Settings label focuses its control.
+- `e2e/live-updates.e2e.js` — with two dashboard tabs open, a site added, a check result written, a feed
+  cache refreshed and an item marked read in one show up in the other without a reload.
+
+Each was also run against a deliberately broken build: with an `await` before the add flow's or the
+import's permission request, without the framing-header stripping, or without the dashboard's
+`storage.onChanged` listener, the tests for that behaviour fail.
 
 How the harness (`e2e/harness.js`) gets a WebDriver session into an extension page, for whoever adds a
 test:
@@ -71,53 +90,51 @@ test:
 - **The extension's UUID is pinned** (`extensions.webextensions.uuids`), so its pages live at
   `EXTENSION_BASE`. BiDi navigates only to http(s), file and blob URLs unless Firefox runs with
   `MOZ_REMOTE_ALLOW_SYSTEM_ACCESS=1`, and it never reports the navigation to a `moz-extension://` page as
-  finished: open pages with `openExtensionPage()`, not `page.goto()`.
-- **Input goes through `click()` and `fill()`, never `page.click()` or `page.type()`.** Firefox treats
-  extension pages as privileged, and WebDriver refuses to send input into them. `click()` synthesizes
-  the mouse events in the browser window at the element's position instead; Firefox delivers them as
-  trusted input, so they count as a user gesture. `fill()` sets a field's value and fires `input`.
+  finished: open pages with `openExtensionPage()`, not `page.goto()`. Each opened page gets a unique
+  `#e2e-<n>` hash, so input finds its tab even when the extension opens another on the same page.
+- **Input goes through the harness, never `page.click()`, `page.type()` or `page.keyboard`.** Firefox
+  treats extension pages as privileged, and WebDriver refuses to send input into them. `click()` and
+  `clickButton()` synthesize mouse events in the browser window at the element's position, and
+  `press()` sends keys through the browser window's text input processor (as Firefox's own
+  `EventUtils.synthesizeKey` does); Firefox delivers both as trusted input, so a click, Enter or Space
+  counts as a user gesture. Both select the page's tab first and let a tab switch settle. `fill()`,
+  `choose()` and `setFile()` set a field, a `<select>` or a file input by script and fire its events,
+  since typing needs no gesture.
 - **Fixtures come from `startFixtureServer()`** on loopback. `127.0.0.1` and `localhost` are different
   hosts to the extension's per-host permissions, so a page on one can advertise a feed on the other.
+  Routes are looked up per request, so a test can change what a URL serves; `requests` logs every
+  request. Keep fixture feeds off the conventional paths (`/feed.xml`, `/rss` …): discovery probes those
+  when a page advertises nothing, which turns adding a site into a feed review.
+- **`e2e/flows.js`** has the app-level steps: `resetExtension()` (storage and host permissions cleared,
+  desktop layout), `openDashboard()`, `addSite()`, `addFeeds()` and `waitForStorage()`.
 
 ## Manual checklist (Firefox)
 
-Build (`npm run build`) and load `.output/firefox-mv2/manifest.json` via `about:debugging`.
+Build (`npm run build`) and load `.output/firefox-mv2/manifest.json` via `about:debugging`. The browser
+tests cover header stripping, feed groups and display settings, export and import, keyboard access, and
+live updates; this list is what they do not reach.
 
 - **Passive by default:** a fresh profile makes no background network requests until you set a check
   interval.
-- **Add a host:** grant the per-host permission → a live preview appears with a last-check time, and
-  **no** cert/load tiles until you enable them.
-- **Feed discovery:** add pages advertising RSS, Atom, and JSON Feed → choose Website, Feed, or Both; choose an
-  existing group or create one, then verify the group becomes one tile.
+- **Metrics:** a newly added site shows **no** cert/load tiles until you enable them; toggle cert/load
+  per site (Sites tab) and via Settings (default + apply-to-all). The cert tile needs a real TLS site.
+- **Feed discovery:** add pages advertising Atom and JSON Feed, and try the Both choice.
 - **Cross-origin RSS:** add the ORF Matrix podcast page → grant ORF's discovery/feed origins and verify
   its podcast headlines load. Add `https://brgenns.ac.at/` → follow the redirect and verify `/feed/`
   is discovered.
-- **Feed groups:** add two feeds to one group, move one to another group, rename both groups, refresh a
-  tile, and verify cached headlines remain when one source is unavailable. Toggle images and
-  descriptions independently for each feed and verify the description character limit, including `0`.
-- **Direct RSS 1.0:** paste `https://rss.orf.at/news.xml` and verify the dialog identifies it as a feed
-  rather than offering to add it as a website.
 - **Podcasts:** add a podcast feed, start an episode, seek and change speed, switch tabs and episodes,
   close/reopen the dashboard, then verify the saved position resumes when that episode is selected.
-- **Read Later:** save and unsave feed items, remove the original feed, verify saved snapshots remain,
-  play a saved podcast, and confirm Clear all before removal.
-- **Read/unread:** verify new and existing items start unread; mark several items read quickly and
-  confirm they disappear from Unread. Cycle through Read, All, and Unread, revert one item to unread,
-  reload the dashboard, and verify the group filter and markers persist. Repeat in two dashboard tabs.
+- **Read Later:** unsave items, remove the original feed, verify saved snapshots remain, play a saved
+  podcast, and confirm Clear all before removal.
+- **Read/unread:** mark several items read quickly; cycle through Read, All, and Unread, revert one item
+  to unread, reload the dashboard, and verify the group filter and markers persist.
 - **Background feeds:** verify it is globally off after upgrade. Enable it, exercise Auto/fixed/Off per
   feed, inspect last/next times, restart Firefox to reconstruct the alarm, and verify a failed feed
   keeps stale items without blocking successful sources.
-- **Header stripping:** add a site that sends `X-Frame-Options` (e.g. an Oracle APEX login) — it should
-  render in the grid. A site with frame-busting JS must **not** navigate your dashboard away (sandbox).
-- **Metrics:** toggle cert/load per site (Hosts tab) and via Settings (default + apply-to-all).
-- **Layout:** switch Auto / Desktop / Mobile in Settings — the grid updates without a reload.
+- **Layout:** switch Auto / Desktop / Mobile in Settings — the grid updates without a reload, and looks
+  right in each.
 - **Checks + notifications:** set an interval, add an unreachable host (e.g. `https://nope.invalid`),
   enable notifications → expect a "host unreachable" notification on the next cycle.
-- **Export / Import:** export the data, remove sites/groups/saved items, re-import → one permission
-  prompt restores site URLs, typed feed URLs, empty groups, group membership, polling choices, and
-  Read Later, group filters, and read markers. Use a v4 file containing both Read Later items and
-  permission-requiring sites/feeds; Firefox must show the permission prompt without a user-gesture
-  error. Also import an older `{ "hosts": [...] }` file.
 
 ## Adding a test
 
